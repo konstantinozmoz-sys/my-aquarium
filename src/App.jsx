@@ -15,7 +15,8 @@ import {
   Beaker,
   Box,
   Layers,
-  Thermometer
+  TrendingDown,
+  Clock
 } from 'lucide-react';
 
 // --- Константы и Идеальные Параметры ---
@@ -35,7 +36,7 @@ const CORAL_TYPES = {
   soft: { label: 'Мягкие (Soft)', care: 'Прощают ошибки. Умеренный свет.', target: 'Могут жить при повышенных нитратах.' },
 };
 
-// Коэффициенты для калькуляторов (из вашего файла)
+// Коэффициенты для калькуляторов
 const CALC_DATA = {
   kh: {
     'nahco3': { label: 'Сода пищевая (NaHCO3)', coeff: 0.03 },
@@ -334,7 +335,63 @@ export default function App() {
   const CalculatorsView = () => {
     const [selectedTool, setSelectedTool] = useState(null);
 
-    // Внутренние компоненты калькуляторов
+    // Новая функция: Оценка потребления
+    const ConsumptionCalc = () => {
+      const [startKH, setStartKH] = useState(8.0);
+      const [endKH, setEndKH] = useState(7.5);
+      const [hours, setHours] = useState(24);
+
+      const stats = useMemo(() => {
+        const drop = startKH - endKH;
+        const dailyDrop = (drop / hours) * 24;
+        
+        let status = 'Неизвестно';
+        let color = 'text-slate-400';
+        let desc = 'Введите данные замера';
+        
+        if (dailyDrop < 0) {
+            status = 'Ошибка данных';
+            desc = 'Конечный KH выше начального?';
+        } else if (dailyDrop < 0.5) {
+            status = 'Малая загрузка';
+            color = 'text-green-400';
+            desc = 'Можно обойтись подменами или легким ручным дозированием.';
+        } else if (dailyDrop < 1.5) {
+            status = 'Средняя загрузка';
+            color = 'text-yellow-400';
+            desc = 'Рекомендуется установка дозатора (Баллинг/2-part).';
+        } else {
+            status = 'Высокая загрузка';
+            color = 'text-red-400';
+            desc = 'Требуется точный баллинг или кальциевый реактор.';
+        }
+        
+        return { dailyDrop: dailyDrop.toFixed(2), status, color, desc };
+      }, [startKH, endKH, hours]);
+
+      return (
+        <div className="space-y-4 animate-fadeIn">
+          <div className="bg-slate-800 p-4 rounded-xl border border-slate-700">
+             <div className="text-xs text-slate-400 mb-4 bg-slate-900/50 p-3 rounded">
+                Сделайте замер KH, подождите некоторое время (лучше 24ч) не добавляя химию, и сделайте второй замер.
+             </div>
+             <div className="grid grid-cols-2 gap-4">
+               <div><label className="label">KH в начале</label><input type="number" step="0.1" value={startKH} onChange={(e) => setStartKH(e.target.value)} className="input-field" /></div>
+               <div><label className="label">KH в конце</label><input type="number" step="0.1" value={endKH} onChange={(e) => setEndKH(e.target.value)} className="input-field" /></div>
+               <div className="col-span-2"><label className="label">Прошло часов</label><input type="number" value={hours} onChange={(e) => setHours(e.target.value)} className="input-field" /></div>
+             </div>
+          </div>
+          
+          <div className="bg-slate-800 p-6 rounded-xl border border-slate-700 text-center">
+             <div className="text-xs text-slate-400 mb-1">Потребление за 24 часа</div>
+             <div className="text-4xl font-bold text-white mb-2">{stats.dailyDrop} <span className="text-lg text-slate-500">dKH</span></div>
+             <div className={`text-xl font-bold ${stats.color} mb-2`}>{stats.status}</div>
+             <div className="text-sm text-slate-400">{stats.desc}</div>
+          </div>
+        </div>
+      );
+    };
+
     const KHCalc = () => {
       const [vol, setVol] = useState(300);
       const [cur, setCur] = useState(7);
@@ -419,10 +476,8 @@ export default function App() {
        const [vol, setVol] = useState(300);
        const [cur, setCur] = useState(1250);
        const [tgt, setTgt] = useState(1350);
-       const [method, setMethod] = useState('chloride'); // Упростим до хлорида для мобильной версии
        
        const result = useMemo(() => {
-         // Формула для хлорида магния (MgCl2*6H2O): Increase * Vol * 0.008364
          const diff = tgt - cur;
          if (diff <= 0) return 0;
          return (diff * vol * 0.008364).toFixed(1);
@@ -501,22 +556,18 @@ export default function App() {
       const [l, setL] = useState(100);
       const [w, setW] = useState(50);
       const [h, setH] = useState(50);
-      const [thick, setThick] = useState(10); // mm
-      const [drop, setDrop] = useState(30); // mm water drop
+      const [thick, setThick] = useState(10); 
+      const [drop, setDrop] = useState(30); 
 
       const vol = useMemo(() => {
-        // External Vol
-        const extL = l / 10; // cm
+        const extL = l / 10; 
         const extW = w / 10;
         const extH = h / 10;
-        const extVol = (extL * extW * extH) / 1000 * 1000; // ml -> L (wait, cm*cm*cm = ml. /1000 = L)
-        
-        // Inner Vol
         const tCm = thick / 10;
         const dropCm = drop / 10;
         const inL = extL - (tCm * 2);
         const inW = extW - (tCm * 2);
-        const inH = extH - tCm; // bottom only
+        const inH = extH - tCm; 
         const waterH = inH - dropCm;
         
         return {
@@ -549,19 +600,13 @@ export default function App() {
     };
 
     const GravelCalc = () => {
-      const [l, setL] = useState(100); // cm
-      const [w, setW] = useState(50); // cm
-      const [h, setH] = useState(3); // cm thickness
+      const [l, setL] = useState(100); 
+      const [w, setW] = useState(50); 
+      const [h, setH] = useState(3); 
       const [type, setType] = useState('caribsea');
 
       const result = useMemo(() => {
-        // Vol in Liters = cm*cm*cm / 1000
         const volL = (l * w * h) / 1000;
-        // Mass = Vol * Density (lbs/gal -> convert to kg/l roughly?)
-        // Density in code is lbs/gal. 1 lbs/gal = 0.1198 kg/L.
-        // Let's use density relative to water (~1kg/L).
-        // Sand usually 1.4-1.6 kg/L.
-        // The doc has density: caribsea 13.9 lbs/gal = ~1.66 kg/L
         const densityMap = {
           'arbitrary': 1.4,
           'caribsea': 1.6,
@@ -602,6 +647,7 @@ export default function App() {
     // Меню выбора калькулятора
     if (!selectedTool) {
       const tools = [
+        { id: 'consumption', name: 'Оценка загрузки', icon: TrendingDown, color: 'text-pink-400', bg: 'bg-pink-500/10' },
         { id: 'kh', name: 'Поднятие KH', icon: Activity, color: 'text-purple-400', bg: 'bg-purple-500/10' },
         { id: 'ca', name: 'Поднятие Ca', icon: Activity, color: 'text-blue-400', bg: 'bg-blue-500/10' },
         { id: 'mg', name: 'Поднятие Mg', icon: Activity, color: 'text-green-400', bg: 'bg-green-500/10' },
@@ -639,6 +685,7 @@ export default function App() {
           <ArrowLeft size={20} /> Назад к списку
         </button>
         <h2 className="text-xl font-bold text-white mb-6">
+          {selectedTool === 'consumption' && 'Оценка потребления рифа'}
           {selectedTool === 'kh' && 'Калькулятор KH'}
           {selectedTool === 'ca' && 'Калькулятор Кальция'}
           {selectedTool === 'mg' && 'Калькулятор Магния'}
@@ -647,6 +694,7 @@ export default function App() {
           {selectedTool === 'gravel' && 'Расчет Грунта'}
         </h2>
         
+        {selectedTool === 'consumption' && <ConsumptionCalc />}
         {selectedTool === 'kh' && <KHCalc />}
         {selectedTool === 'ca' && <CaCalc />}
         {selectedTool === 'mg' && <MgCalc />}
