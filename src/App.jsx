@@ -353,30 +353,52 @@ export default function App() {
         setIsAnalyzing(true);
         try {
             const base64Data = await new Promise((resolve) => {
-                const r = new FileReader(); r.onloadend = () => resolve(r.result.split(',')[1]); r.readAsDataURL(file);
+                const r = new FileReader(); 
+                r.onloadend = () => resolve(r.result.split(',')[1]); 
+                r.readAsDataURL(file);
             });
             
-            // ИСПРАВЛЕНО: используем рабочую модель gemini-pro-vision
-            const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-pro-vision:generateContent?key=${GOOGLE_API_KEY}`, {
+            // Используем простой подход с Gemini API
+            const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GOOGLE_API_KEY}`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
-                    contents: [{ parts: [
-                        { text: "Analyze this image of an aquarium water test report (ICP). Extract: Salinity, KH (Alkalinity), Calcium, Magnesium, Nitrate, Phosphate. Return ONLY a valid JSON object with keys: salinity, kh, ca, mg, no3, po4. Use numbers only. If a value is missing, use null. No markdown, no extra text." },
-                        { inline_data: { mime_type: file.type, data: base64Data } }
-                    ]}]
+                    contents: [{ 
+                        parts: [
+                            { text: "Analyze this aquarium water test report image. Extract the following parameters if visible: Salinity (in ppt), KH/Alkalinity (in dKH), Calcium (in ppm), Magnesium (in ppm), Nitrate/NO3 (in ppm), Phosphate/PO4 (in ppm). Return ONLY valid JSON with keys: salinity, kh, ca, mg, no3, po4. Use numbers only. If value not found, use null. No markdown, no explanations." },
+                            { inline_data: { mime_type: file.type, data: base64Data } }
+                        ]
+                    }]
                 })
             });
+            
             const data = await response.json();
-            if (data.error) throw new Error(data.error.message);
+            
+            if (data.error) {
+                throw new Error(data.error.message || JSON.stringify(data.error));
+            }
+            
             let text = data.candidates?.[0]?.content?.parts?.[0]?.text;
             if (text) {
                 const cleanJson = text.replace(/```json|```/g, '').trim();
                 const res = JSON.parse(cleanJson);
-                setLocalParams(prev => ({ ...prev, salinity: res.salinity || prev.salinity, kh: res.kh || prev.kh, ca: res.ca || prev.ca, mg: res.mg || prev.mg, no3: res.no3 || prev.no3, po4: res.po4 || prev.po4 }));
-                alert("Данные успешно распознаны ИИ!");
+                setLocalParams(prev => ({ 
+                    ...prev, 
+                    salinity: res.salinity || prev.salinity, 
+                    kh: res.kh || prev.kh, 
+                    ca: res.ca || prev.ca, 
+                    mg: res.mg || prev.mg, 
+                    no3: res.no3 || prev.no3, 
+                    po4: res.po4 || prev.po4 
+                }));
+                alert("✅ Данные успешно распознаны!");
             }
-        } catch (e) { alert(`Scan Error: ${e.message}`); } finally { setIsAnalyzing(false); }
+        } catch (e) { 
+            console.error('ICP Scan Error:', e);
+            alert(`❌ Ошибка сканирования: ${e.message}\n\nПроверьте консоль для деталей.`); 
+        } finally { 
+            setIsAnalyzing(false); 
+        }
     };
 
     return (
@@ -628,39 +650,82 @@ export default function App() {
 
     const testApi = async () => {
         try {
+            // Проверяем список моделей
             const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${GOOGLE_API_KEY}`);
             const data = await response.json();
-            console.log("Available models:", data.models?.map(m => m.name));
-            if (data.models) alert("✅ Neural Core Authorized. Check console for available models.");
-            else alert("❌ Error: " + JSON.stringify(data.error));
-        } catch (e) { alert("❌ Error: " + e.message); }
+            
+            if (data.error) {
+                console.error("API Error:", data.error);
+                alert(`❌ Ошибка API:\n${data.error.message || JSON.stringify(data.error)}`);
+                return;
+            }
+            
+            if (data.models) {
+                const visionModels = data.models.filter(m => 
+                    m.supportedGenerationMethods?.includes('generateContent')
+                );
+                
+                console.log("=== ДОСТУПНЫЕ МОДЕЛИ ===");
+                console.log("Всего:", data.models.length);
+                console.log("С поддержкой Vision:", visionModels.length);
+                console.log("\nПолный список моделей:");
+                data.models.forEach(m => {
+                    console.log(`- ${m.name}`, m.supportedGenerationMethods);
+                });
+                
+                alert(`✅ API подключен успешно!\n\n` +
+                      `Всего моделей: ${data.models.length}\n` +
+                      `С Vision: ${visionModels.length}\n\n` +
+                      `Список в консоли (F12)`);
+            }
+        } catch (e) { 
+            console.error("Network Error:", e);
+            alert(`❌ Ошибка сети: ${e.message}\n\nПроверьте подключение к интернету.`); 
+        }
     };
 
     const identifyDisease = async (e) => {
         const file = e.target.files[0];
         if (!file) return;
-        const reader = new FileReader(); reader.onloadend = () => setImagePreview(reader.result); reader.readAsDataURL(file);
-        setAnalyzing(true); setResult(null);
+        const reader = new FileReader(); 
+        reader.onloadend = () => setImagePreview(reader.result); 
+        reader.readAsDataURL(file);
+        setAnalyzing(true); 
+        setResult(null);
         try {
             const base64Data = await new Promise((resolve) => {
-                const r = new FileReader(); r.onloadend = () => resolve(r.result.split(',')[1]); r.readAsDataURL(file);
+                const r = new FileReader(); 
+                r.onloadend = () => resolve(r.result.split(',')[1]); 
+                r.readAsDataURL(file);
             });
             
-            // ИСПРАВЛЕНО: используем рабочую модель gemini-pro-vision
-            const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-pro-vision:generateContent?key=${GOOGLE_API_KEY}`, {
+            // Используем v1beta API с gemini-1.5-flash
+            const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GOOGLE_API_KEY}`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
-                    contents: [{ parts: [
-                        { text: "Analyze this aquarium photo. Identify health issues (RTN/STN, parasites, ich, diseases). Reply in Russian. Be clinical but concise. Focus on treatment and recommendations." },
-                        { inline_data: { mime_type: file.type, data: base64Data } }
-                    ]}]
+                    contents: [{ 
+                        parts: [
+                            { text: "Проанализируй это фото аквариума или его обитателей. Определи возможные проблемы со здоровьем: RTN/STN у кораллов, паразиты, болезни рыб (ich, velvet и другие). Ответь на русском языке. Будь конкретен и лаконичен. Сосредоточься на рекомендациях по лечению и диагностике." },
+                            { inline_data: { mime_type: file.type, data: base64Data } }
+                        ]
+                    }]
                 })
             });
+            
             const data = await response.json();
-            if (data.error) throw new Error(data.error.message);
-            setResult(data.candidates?.[0]?.content?.parts?.[0]?.text || "Diagnostic data unavailable.");
-        } catch (e) { setResult(`Protocol Error: ${e.message}`); } finally { setAnalyzing(false); }
+            
+            if (data.error) {
+                throw new Error(data.error.message || JSON.stringify(data.error));
+            }
+            
+            setResult(data.candidates?.[0]?.content?.parts?.[0]?.text || "Не удалось получить диагностические данные.");
+        } catch (e) { 
+            console.error('AI Doctor Error:', e);
+            setResult(`❌ Ошибка анализа: ${e.message}\n\nПроверьте консоль браузера для деталей.`); 
+        } finally { 
+            setAnalyzing(false); 
+        }
     };
 
     return (
