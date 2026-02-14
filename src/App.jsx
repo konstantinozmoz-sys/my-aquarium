@@ -40,61 +40,54 @@ const firebaseConfig = {
   measurementId: "G-RDWEZCWREF"
 };
 
-// --- Google Gemini API Key ---
-const GOOGLE_API_KEY = "AIzaSyClDJSI3P1vzUNlXtoni0hcLm6mrh5l2Rk"; 
+// --- OpenAI API Key ---
+const OPENAI_API_KEY = "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";
 
-// Универсальная функция вызова Gemini API с автоматическим подбором модели
-const callGeminiVision = async (imageData, mimeType, prompt) => {
-  const modelsToTry = [
-    'gemini-1.5-pro-latest',
-    'gemini-1.5-pro',
-    'gemini-pro-vision',
-    'gemini-1.5-flash-latest',
-    'gemini-1.5-flash'
-  ];
+// Универсальная функция вызова OpenAI Vision API
+const callOpenAIVision = async (imageData, mimeType, prompt) => {
+  try {
+    console.log('🔍 Calling OpenAI GPT-4 Vision...');
+    
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${OPENAI_API_KEY}`
+      },
+      body: JSON.stringify({
+        model: 'gpt-4o',
+        messages: [
+          {
+            role: 'user',
+            content: [
+              { type: 'text', text: prompt },
+              { 
+                type: 'image_url', 
+                image_url: { 
+                  url: `data:${mimeType};base64,${imageData}`,
+                  detail: 'high'
+                } 
+              }
+            ]
+          }
+        ],
+        max_tokens: 1000
+      })
+    });
 
-  for (const model of modelsToTry) {
-    try {
-      console.log(`🔍 Trying model: ${model}`);
-      const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GOOGLE_API_KEY}`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            contents: [{
-              parts: [
-                { text: prompt },
-                { inline_data: { mime_type: mimeType, data: imageData } }
-              ]
-            }]
-          })
-        }
-      );
+    const data = await response.json();
 
-      const data = await response.json();
-
-      if (response.status === 404) {
-        console.log(`❌ Model ${model} not found, trying next...`);
-        continue;
-      }
-
-      if (data.error) {
-        console.log(`❌ Error with ${model}:`, data.error.message);
-        if (data.error.status === 'NOT_FOUND') continue;
-        throw new Error(data.error.message);
-      }
-
-      console.log(`✅ Success with model: ${model}`);
-      return data;
-
-    } catch (error) {
-      console.log(`❌ Failed ${model}:`, error.message);
-      continue;
+    if (data.error) {
+      throw new Error(data.error.message);
     }
-  }
 
-  throw new Error('Все модели Gemini API недоступны. Попробуйте позже или проверьте настройки API ключа.');
+    console.log('✅ OpenAI Vision SUCCESS!');
+    return data.choices[0].message.content;
+
+  } catch (error) {
+    console.error('❌ OpenAI Error:', error);
+    throw error;
+  }
 }; 
 
 // Инициализация сервисов
@@ -412,27 +405,26 @@ export default function App() {
                 r.readAsDataURL(file);
             });
             
-            const data = await callGeminiVision(
+            const result = await callOpenAIVision(
                 base64Data,
                 file.type,
-                "Analyze this aquarium water test report image. Extract the following parameters if visible: Salinity (in ppt), KH/Alkalinity (in dKH), Calcium (in ppm), Magnesium (in ppm), Nitrate/NO3 (in ppm), Phosphate/PO4 (in ppm). Return ONLY valid JSON with keys: salinity, kh, ca, mg, no3, po4. Use numbers only. If value not found, use null. No markdown, no explanations."
+                "Analyze this aquarium water test report image (ICP test). Extract the following parameters if visible: Salinity (in ppt), KH/Alkalinity (in dKH), Calcium (in ppm), Magnesium (in ppm), Nitrate/NO3 (in ppm), Phosphate/PO4 (in ppm). Return ONLY valid JSON with keys: salinity, kh, ca, mg, no3, po4. Use numbers only. If value not found, use null. No markdown, no explanations, just pure JSON."
             );
             
-            let text = data.candidates?.[0]?.content?.parts?.[0]?.text;
-            if (text) {
-                const cleanJson = text.replace(/```json|```/g, '').trim();
-                const res = JSON.parse(cleanJson);
-                setLocalParams(prev => ({ 
-                    ...prev, 
-                    salinity: res.salinity || prev.salinity, 
-                    kh: res.kh || prev.kh, 
-                    ca: res.ca || prev.ca, 
-                    mg: res.mg || prev.mg, 
-                    no3: res.no3 || prev.no3, 
-                    po4: res.po4 || prev.po4 
-                }));
-                alert("✅ Данные успешно распознаны!");
-            }
+            // Парсим JSON из ответа
+            const cleanJson = result.replace(/```json|```/g, '').trim();
+            const res = JSON.parse(cleanJson);
+            
+            setLocalParams(prev => ({ 
+                ...prev, 
+                salinity: res.salinity || prev.salinity, 
+                kh: res.kh || prev.kh, 
+                ca: res.ca || prev.ca, 
+                mg: res.mg || prev.mg, 
+                no3: res.no3 || prev.no3, 
+                po4: res.po4 || prev.po4 
+            }));
+            alert("✅ Данные успешно распознаны GPT-4!");
         } catch (e) { 
             console.error('ICP Scan Error:', e);
             alert(`❌ Ошибка: ${e.message}`); 
@@ -690,50 +682,38 @@ export default function App() {
 
     const testApi = async () => {
         try {
-            console.log("🔍 Проверка доступных моделей Gemini API...");
+            console.log("🔍 Проверка подключения к OpenAI...");
             
-            // Проверяем список моделей
-            const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${GOOGLE_API_KEY}`);
+            // Простой тестовый запрос
+            const response = await fetch('https://api.openai.com/v1/models', {
+                headers: { 'Authorization': `Bearer ${OPENAI_API_KEY}` }
+            });
+            
             const data = await response.json();
             
             if (data.error) {
-                console.error("❌ API Error:", data.error);
-                alert(`❌ Ошибка API:\n${data.error.message || JSON.stringify(data.error)}`);
+                console.error("❌ OpenAI Error:", data.error);
+                alert(`❌ Ошибка API:\n${data.error.message}`);
                 return;
             }
             
-            if (data.models) {
-                const visionModels = data.models.filter(m => 
-                    m.supportedGenerationMethods?.includes('generateContent')
-                );
+            if (data.data) {
+                const visionModels = data.data.filter(m => m.id.includes('gpt-4'));
                 
-                console.log("=== РЕЗУЛЬТАТЫ ПРОВЕРКИ ===");
-                console.log(`✅ Всего моделей: ${data.models.length}`);
-                console.log(`✅ С Vision (generateContent): ${visionModels.length}`);
-                console.log("\n📋 Полный список Vision моделей:");
+                console.log("=== ДОСТУПНЫЕ МОДЕЛИ OPENAI ===");
+                console.log(`✅ Всего моделей: ${data.data.length}`);
+                console.log(`✅ GPT-4 моделей: ${visionModels.length}`);
+                console.log("\n📋 GPT-4 модели:");
                 visionModels.forEach(m => {
-                    console.log(`  - ${m.name}`);
+                    console.log(`  - ${m.id}`);
                 });
                 
-                console.log("\n🧪 Тестируем модели в порядке приоритета:");
-                const modelsToTest = [
-                    'gemini-1.5-pro-latest',
-                    'gemini-1.5-pro', 
-                    'gemini-pro-vision',
-                    'gemini-1.5-flash-latest',
-                    'gemini-1.5-flash'
-                ];
-                
-                for (const model of modelsToTest) {
-                    const exists = visionModels.some(m => m.name.includes(model));
-                    console.log(`  ${exists ? '✅' : '❌'} ${model}`);
-                }
-                
                 alert(
-                    `✅ API подключен!\n\n` +
-                    `Всего моделей: ${data.models.length}\n` +
-                    `Vision моделей: ${visionModels.length}\n\n` +
-                    `Проверьте консоль (F12) для списка`
+                    `✅ OpenAI подключен!\n\n` +
+                    `Всего моделей: ${data.data.length}\n` +
+                    `GPT-4: ${visionModels.length}\n\n` +
+                    `Используется: gpt-4o\n` +
+                    `Детали в консоли (F12)`
                 );
             }
         } catch (e) { 
@@ -757,13 +737,13 @@ export default function App() {
                 r.readAsDataURL(file);
             });
             
-            const data = await callGeminiVision(
+            const result = await callOpenAIVision(
                 base64Data,
                 file.type,
-                "Проанализируй это фото аквариума или его обитателей. Определи возможные проблемы со здоровьем: RTN/STN у кораллов, паразиты, болезни рыб (ich, velvet и другие). Ответь на русском языке. Будь конкретен и лаконичен. Сосредоточься на рекомендациях по лечению и диагностике."
+                "Проанализируй это фото аквариума или его обитателей. Определи возможные проблемы со здоровьем: RTN/STN у кораллов, паразиты (Montipora-eating nudibranch, Red Bugs, AEFW и другие), болезни рыб (ich/ихтиофтириоз, velvet/оодиниоз, бактериальные инфекции и другие). Ответь на русском языке. Будь конкретен и лаконичен. Сосредоточься на диагностике, рекомендациях по лечению и профилактике."
             );
             
-            setResult(data.candidates?.[0]?.content?.parts?.[0]?.text || "Не удалось получить диагностические данные.");
+            setResult(result || "Не удалось получить диагностические данные.");
         } catch (e) { 
             console.error('AI Doctor Error:', e);
             setResult(`❌ Ошибка: ${e.message}`); 
