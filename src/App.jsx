@@ -3,7 +3,7 @@ import {
   Droplets, Activity, Fish, Plus, Save, AlertTriangle, 
   CheckCircle, Trash2, User, LogOut, Crown, Mail, MapPin, Lock,
   Edit2, X, ChevronDown, Calendar, RefreshCw, Settings, Info,
-  Camera, FileText, UploadCloud, Loader2, Stethoscope, Sparkles, ScanLine
+  Camera, FileText, UploadCloud, Loader2, Stethoscope, Sparkles, ScanLine, Wrench
 } from 'lucide-react';
 
 // --- Подключение Firebase ---
@@ -423,15 +423,14 @@ export default function App() {
         setIsAnalyzing(true);
         
         try {
-            // Конвертация в base64
             const base64Data = await new Promise((resolve) => {
                 const r = new FileReader();
                 r.onloadend = () => resolve(r.result.split(',')[1]);
                 r.readAsDataURL(file);
             });
 
-            // Запрос к Gemini (ОБНОВЛЕННАЯ ВЕРСИЯ - СТАБИЛЬНАЯ)
-            const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-001:generateContent?key=${GOOGLE_API_KEY}`, {
+            // Используем стандартную версию модели
+            const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GOOGLE_API_KEY}`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
@@ -448,7 +447,6 @@ export default function App() {
             
             if (data.error) throw new Error(`${data.error.message} (Code: ${data.error.code})`);
 
-            // Парсинг ответа
             let text = data.candidates?.[0]?.content?.parts?.[0]?.text;
             if (text) {
                 text = text.replace(/```json/g, '').replace(/```/g, '').trim();
@@ -470,7 +468,7 @@ export default function App() {
 
         } catch (error) {
             console.error(error);
-            alert(`Ошибка ИИ: ${error.message}. Убедитесь, что 'Generative Language API' включен в Google Cloud Console.`);
+            alert(`Ошибка ИИ: ${error.message}.`);
         } finally {
             setIsAnalyzing(false);
         }
@@ -527,6 +525,21 @@ export default function App() {
     const [result, setResult] = useState(null);
     const [imagePreview, setImagePreview] = useState(null);
 
+    // Функция проверки API
+    const testApi = async () => {
+        try {
+            const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${GOOGLE_API_KEY}`);
+            const data = await response.json();
+            if (data.models) {
+                alert("✅ API работает! Доступные модели найдены.");
+            } else {
+                alert("❌ Ошибка API: " + JSON.stringify(data.error));
+            }
+        } catch (e) {
+            alert("❌ Ошибка сети: " + e.message);
+        }
+    };
+
     const identifyDisease = async (e) => {
         const file = e.target.files[0];
         if (!file) return;
@@ -545,8 +558,8 @@ export default function App() {
                 r.readAsDataURL(file);
             });
 
-            // Запрос к Gemini (ОБНОВЛЕННАЯ ВЕРСИЯ - СТАБИЛЬНАЯ)
-            const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-001:generateContent?key=${GOOGLE_API_KEY}`, {
+            // Используем стандартную версию модели
+            const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GOOGLE_API_KEY}`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
@@ -567,7 +580,7 @@ export default function App() {
 
         } catch (error) {
             console.error(error);
-            setResult(`Ошибка анализа: ${error.message}. Убедитесь, что API включен в Google Console.`);
+            setResult(`Ошибка анализа: ${error.message}.`);
         } finally {
             setAnalyzing(false);
         }
@@ -575,6 +588,12 @@ export default function App() {
 
     return (
         <div className="pb-24 animate-fadeIn space-y-6">
+            <div className="flex justify-end">
+                <button onClick={testApi} className="text-xs text-slate-500 flex items-center gap-1 hover:text-cyan-400">
+                    <Wrench size={12} /> Проверить API
+                </button>
+            </div>
+
             <div className="bg-gradient-to-r from-teal-900 to-emerald-900 p-6 rounded-2xl border border-teal-700/50 shadow-lg relative overflow-hidden">
                 <Stethoscope className="absolute right-[-10px] bottom-[-20px] text-teal-500/20 w-40 h-40 transform rotate-12" />
                 <h2 className="text-2xl font-bold text-white mb-2 relative z-10">Доктор Риф</h2>
