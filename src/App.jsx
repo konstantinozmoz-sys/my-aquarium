@@ -40,7 +40,7 @@ const firebaseConfig = {
 };
 
 // --- Google Gemini API Key ---
-const GOOGLE_API_KEY = "AIzaSyDRZyOZmC7qIogDly4DPCfiU2bD01EHPpI"; 
+const GOOGLE_API_KEY = "AIzaSyBH2CWzRv4vmJsnX1_j15MbKAE4lDgABn8"; 
 
 // Инициализация
 let auth, db;
@@ -470,7 +470,7 @@ export default function App() {
 
         } catch (error) {
             console.error(error);
-            alert(`Ошибка ИИ: ${error.message}. Проверьте, включен ли Generative Language API в Google Console.`);
+            alert(`Ошибка ИИ: ${error.message}. Убедитесь, что 'Generative Language API' включен в Google Cloud Console.`);
         } finally {
             setIsAnalyzing(false);
         }
