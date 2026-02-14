@@ -106,7 +106,6 @@ export default function App() {
             const data = docSnap.data();
             
             // --- МИГРАЦИЯ ДАННЫХ (для старых пользователей) ---
-            // Если у пользователя старая структура (нет массива aquariums), создаем его из currentParams
             if (!data.aquariums) {
                const defaultAq = {
                  id: 'default_1',
@@ -114,12 +113,11 @@ export default function App() {
                  params: data.currentParams || DEFAULT_PARAMS
                };
                updateDoc(userRef, { aquariums: [defaultAq] });
-               // Локально пока ставим заглушку, следующий снапшот обновит UI
                setAquariums([defaultAq]);
                setSelectedAqId('default_1');
             } else {
                setAquariums(data.aquariums);
-               // Если ничего не выбрано, выбираем первый
+               // Если ничего не выбрано, выбираем первый доступный
                if (!selectedAqId && data.aquariums.length > 0) {
                  setSelectedAqId(data.aquariums[0].id);
                }
@@ -153,7 +151,6 @@ export default function App() {
       registeredAt: new Date().toISOString(),
       subscription: { name: 'PRO Trial', expiresAt: trialDate.toISOString() },
       personalInfo: { fullName: userAuth.displayName || 'Aquarist', city: '' },
-      // Новая структура сразу
       aquariums: [{
         id: Date.now().toString(),
         name: 'Основной Риф',
@@ -164,7 +161,7 @@ export default function App() {
     await setDoc(doc(db, "users", userAuth.uid), newUser);
   };
 
-  // --- Auth Handlers (оставил без изменений логику) ---
+  // --- Auth Handlers ---
   const handleRegister = async (e) => {
     e.preventDefault();
     if (!city) { alert("Укажите город!"); return; }
@@ -205,7 +202,6 @@ export default function App() {
   };
 
   // --- Управление Аквариумами ---
-  
   const addNewAquarium = async () => {
     if (aquariums.length >= 3) {
       alert("В тестовой версии можно создать не более 3 аквариумов.");
@@ -244,7 +240,7 @@ export default function App() {
     setEditingNameId(null);
   };
 
-  // --- Сохранение параметров (ICP) для КОНКРЕТНОГО аквариума ---
+  // --- Сохранение параметров ---
   const saveParamsForAquarium = async (aqId, newParams) => {
     const updatedList = aquariums.map(aq => 
       aq.id === aqId ? { ...aq, params: newParams } : aq
@@ -253,9 +249,24 @@ export default function App() {
     alert("Данные сохранены!");
   };
 
+  // --- Кораллы ---
   const addCoral = async (name, type) => {
      if (!user || !name) return;
-     const newCoral = { id: Date.now(), name, type, date: new Date().toISOString(), aqId: selectedAqId };
+     // Гарантируем, что ID аквариума установлен
+     const targetAqId = selectedAqId || (aquariums.length > 0 ? aquariums[0].id : null);
+     
+     if (!targetAqId) {
+         alert("Сначала выберите или создайте аквариум!");
+         return;
+     }
+
+     const newCoral = { 
+         id: Date.now(), 
+         name, 
+         type, 
+         date: new Date().toISOString(), 
+         aqId: targetAqId // Жесткая привязка
+     };
      await updateDoc(doc(db, "users", user.uid), { livestock: arrayUnion(newCoral) });
   };
 
@@ -264,26 +275,35 @@ export default function App() {
      await updateDoc(doc(db, "users", user.uid), { livestock: newLivestock });
   };
 
-  // Вспомогательная функция анализа параметров
+  // --- УЛУЧШЕННЫЕ РЕКОМЕНДАЦИИ ---
   const getRecommendations = (params) => {
     const recs = [];
     Object.keys(params).forEach(key => {
       if (!IDEAL_PARAMS[key]) return;
       const val = parseFloat(params[key]);
-      const { min, max, name } = IDEAL_PARAMS[key];
-      if (val < min) recs.push({ type: 'warning', msg: `${name}: низко (${val})` });
-      else if (val > max) recs.push({ type: 'alert', msg: `${name}: высоко (${val})` });
+      const { min, max, name, unit } = IDEAL_PARAMS[key];
+      
+      // Формируем текст с диапазоном нормы
+      if (val < min) {
+          recs.push({ 
+              type: 'warning', 
+              msg: `${name} низко: ${val}. Норма: ${min} - ${max} ${unit}` 
+          });
+      } else if (val > max) {
+          recs.push({ 
+              type: 'alert', 
+              msg: `${name} высоко: ${val}. Норма: ${min} - ${max} ${unit}` 
+          });
+      }
     });
     return recs;
   };
 
   // --- ЭКРАНЫ ---
 
-  // 1. DASHBOARD (Лента аквариумов)
+  // 1. DASHBOARD
   const DashboardView = () => (
     <div className="space-y-8 animate-fadeIn pb-24">
-      
-      {/* Шапка пользователя */}
       <div className="flex justify-between items-center px-2">
         <div>
           <h1 className="text-2xl font-bold text-white">Мои системы</h1>
@@ -300,10 +320,7 @@ export default function App() {
         const recs = getRecommendations(aq.params);
         return (
           <div key={aq.id} className="space-y-3">
-            {/* Карточка Аквариума */}
             <div className="bg-gradient-to-br from-cyan-900 to-blue-950 p-6 rounded-2xl shadow-lg border border-cyan-800/50 relative group">
-              
-              {/* Заголовок с редактированием */}
               <div className="flex justify-between items-start mb-4">
                 {editingNameId === aq.id ? (
                   <div className="flex gap-2 w-full mr-8">
@@ -323,7 +340,6 @@ export default function App() {
                     </button>
                   </div>
                 )}
-                
                 {aquariums.length > 1 && (
                   <button onClick={() => deleteAquarium(aq.id)} className="text-slate-500 hover:text-red-400">
                     <X size={20} />
@@ -331,7 +347,6 @@ export default function App() {
                 )}
               </div>
 
-              {/* Основные показатели */}
               <div className="grid grid-cols-3 gap-3">
                 <div className="bg-white/10 p-2 rounded-xl backdrop-blur-sm text-center">
                   <div className="text-cyan-200 text-[10px] font-bold uppercase">Соленость</div>
@@ -351,7 +366,6 @@ export default function App() {
               </div>
             </div>
 
-            {/* Рекомендации под карточкой */}
             <div className="px-2">
               {recs.length === 0 ? (
                 <div className="p-3 bg-slate-900/50 rounded-xl border border-slate-800 text-slate-500 text-xs text-center">
@@ -360,11 +374,11 @@ export default function App() {
               ) : (
                 <div className="space-y-2">
                   {recs.map((rec, i) => (
-                    <div key={i} className={`p-3 rounded-xl text-sm flex gap-2 items-center ${
+                    <div key={i} className={`p-3 rounded-xl text-sm flex gap-2 items-start ${
                       rec.type === 'alert' ? 'bg-red-900/20 border border-red-900/50 text-red-200' : 'bg-yellow-900/20 border border-yellow-900/50 text-yellow-200'
                     }`}>
-                      <AlertTriangle size={16} className="shrink-0"/>
-                      {rec.msg}
+                      <AlertTriangle size={16} className="shrink-0 mt-0.5"/>
+                      <span>{rec.msg}</span>
                     </div>
                   ))}
                 </div>
@@ -376,13 +390,11 @@ export default function App() {
     </div>
   );
 
-  // 2. PARAMETERS (Тесты / ICP)
+  // 2. PARAMETERS
   const ParametersView = () => {
-    // Находим текущий выбранный аквариум
     const activeAq = aquariums.find(a => a.id === selectedAqId) || aquariums[0];
     const [localParams, setLocalParams] = useState(activeAq ? activeAq.params : DEFAULT_PARAMS);
 
-    // При смене таба обновляем локальный стейт
     useEffect(() => {
       if(activeAq) setLocalParams(activeAq.params);
     }, [activeAq]);
@@ -397,7 +409,6 @@ export default function App() {
       <div className="pb-24 animate-fadeIn">
         <h2 className="text-2xl font-bold text-white mb-4">Ввод данных ICP/Тестов</h2>
         
-        {/* Селектор аквариума */}
         <div className="mb-6 bg-slate-800 p-2 rounded-xl flex items-center relative">
           <div className="absolute left-4 text-slate-400 pointer-events-none"><Fish size={20}/></div>
           <select 
@@ -415,7 +426,7 @@ export default function App() {
             <div key={key} className="bg-slate-800 p-3 rounded-xl border border-slate-700 flex justify-between items-center">
               <div>
                 <div className="text-slate-300 font-medium">{c.name}</div>
-                <div className="text-[10px] text-slate-500">Норма: {c.min}-{c.max}</div>
+                <div className="text-[10px] text-slate-500">Норма: {c.min}-{c.max} {c.unit}</div>
               </div>
               <div className="relative w-24">
                 <input 
@@ -433,21 +444,23 @@ export default function App() {
     );
   };
 
-  // 3. LIVESTOCK (Кораллы)
+  // 3. LIVESTOCK
   const LivestockView = () => {
     const [isAdding, setIsAdding] = useState(false);
     const [name, setName] = useState('');
     const [type, setType] = useState('sps');
     
-    // Фильтруем кораллы по выбранному аквариуму
-    // Если коралл старый (нет aqId), показываем его везде или в первом (для простоты покажем везде)
-    const filteredLivestock = livestock.filter(l => !l.aqId || l.aqId === selectedAqId);
+    // Фильтр: показываем кораллы ТОЛЬКО текущего аквариума.
+    // Если aqId нет, считаем, что это коралл первого аквариума (для совместимости).
+    const filteredLivestock = livestock.filter(l => {
+      const itemAqId = l.aqId || (aquariums.length > 0 ? aquariums[0].id : null);
+      return itemAqId === selectedAqId;
+    });
 
     return (
       <div className="pb-24 animate-fadeIn">
          <h2 className="text-2xl font-bold text-white mb-4">Жители</h2>
          
-         {/* Селектор аквариума (тот же стиль) */}
          <div className="mb-6 bg-slate-800 p-2 rounded-xl flex items-center relative">
           <div className="absolute left-4 text-slate-400 pointer-events-none"><Fish size={20}/></div>
           <select 
@@ -523,7 +536,7 @@ export default function App() {
     </div>
   );
 
-  // --- LOGIN/REGISTER FORMS (Остались без изменений, только рендер) ---
+  // --- LOGIN/REGISTER FORMS ---
   if (!user) {
     if (loading) return <div className="min-h-screen bg-slate-950 flex items-center justify-center text-cyan-500">Загрузка...</div>;
     return (
