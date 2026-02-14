@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { 
   Droplets, Activity, Fish, Plus, Save, AlertTriangle, 
   CheckCircle, Trash2, User, LogOut, Crown, Mail, MapPin, Lock,
-  Edit2, X, ChevronDown, Calendar, RefreshCw, Settings
+  Edit2, X, ChevronDown, Calendar, RefreshCw, Settings, Info
 } from 'lucide-react';
 
 // --- Подключение Firebase ---
@@ -87,18 +87,24 @@ export default function App() {
   // Состояния для управления аквариумами
   const [aquariums, setAquariums] = useState([]); 
   const [selectedAqId, setSelectedAqId] = useState(null); 
-  const [editingNameId, setEditingNameId] = useState(null); 
-  const [tempName, setTempName] = useState('');
   
-  // Новое: Редактирование объема
+  // Редактирование настроек (Имя, Объем)
   const [editingSettingsId, setEditingSettingsId] = useState(null);
+  const [tempName, setTempName] = useState('');
   const [tempVolume, setTempVolume] = useState('');
   const [tempUnit, setTempUnit] = useState('L');
 
-  // Новое: Модалка подмены воды
-  const [waterChangeModal, setWaterChangeModal] = useState(null); // ID аквариума или null
+  // Модалка создания аквариума
+  const [isCreating, setIsCreating] = useState(false);
+  const [newAqData, setNewAqData] = useState({ name: '', volume: '100', unit: 'L' });
+
+  // Модалка подтверждения удаления
+  const [deleteConfirmationId, setDeleteConfirmationId] = useState(null);
+
+  // Модалка подмены воды
+  const [waterChangeModal, setWaterChangeModal] = useState(null); // ID аквариума
   const [wcAmount, setWcAmount] = useState('');
-  const [wcUnit, setWcUnit] = useState('L'); // L или Gal
+  const [wcUnit, setWcUnit] = useState('L');
 
   // Состояния для кораллов
   const [livestock, setLivestock] = useState([]);
@@ -115,7 +121,7 @@ export default function App() {
           if (docSnap.exists()) {
             const data = docSnap.data();
             
-            // МИГРАЦИЯ: Если есть аквариумы без объема, добавляем дефолтный
+            // МИГРАЦИЯ ДАННЫХ
             if (data.aquariums) {
                const fixedAquariums = data.aquariums.map(aq => ({
                    ...aq,
@@ -127,7 +133,6 @@ export default function App() {
                setAquariums(fixedAquariums);
                if (!selectedAqId && fixedAquariums.length > 0) setSelectedAqId(fixedAquariums[0].id);
             } else if (data.currentParams) {
-               // Совсем старая структура
                const defaultAq = {
                  id: 'default_1',
                  name: 'Мой Риф',
@@ -181,7 +186,7 @@ export default function App() {
     await setDoc(doc(db, "users", userAuth.uid), newUser);
   };
 
-  // --- Auth Handlers (сокращены для экономии места, логика та же) ---
+  // --- Auth Handlers ---
   const handleRegister = async (e) => {
     e.preventDefault();
     if (!city) { alert("Укажите город!"); return; }
@@ -204,28 +209,54 @@ export default function App() {
   const saveMissingCity = async () => { if(!city) return; await updateDoc(doc(db, "users", user.uid), { "personalInfo.city": city }); setMissingCityModal(false); };
 
   // --- Управление Аквариумами ---
-  const addNewAquarium = async () => {
+  
+  // 1. Открыть модалку создания
+  const startCreatingAquarium = () => {
     if (aquariums.length >= 3) { alert("Максимум 3 аквариума."); return; }
+    setNewAqData({ name: `Аквариум #${aquariums.length + 1}`, volume: '100', unit: 'L' });
+    setIsCreating(true);
+  };
+
+  // 2. Сохранить новый аквариум
+  const confirmCreateAquarium = async () => {
+    if (!newAqData.name) { alert("Введите название"); return; }
+    if (!newAqData.volume || parseFloat(newAqData.volume) <= 0) { alert("Введите корректный объем"); return; }
+
     const newAq = {
       id: Date.now().toString(),
-      name: `Аквариум #${aquariums.length + 1}`,
+      name: newAqData.name,
       params: DEFAULT_PARAMS,
-      volume: 100, // Дефолтный объем
-      volumeUnit: 'L',
-      lastWaterChange: new Date().toISOString()
+      volume: parseFloat(newAqData.volume),
+      volumeUnit: newAqData.unit,
+      lastWaterChange: new Date().toISOString(),
+      stabilityStatus: 'stable'
     };
     await updateDoc(doc(db, "users", user.uid), { aquariums: [...aquariums, newAq] });
+    setIsCreating(false);
   };
 
-  const deleteAquarium = async (id) => {
-    if (!confirm("Удалить аквариум?")) return;
-    const list = aquariums.filter(aq => aq.id !== id);
-    if (list.length === 0) { alert("Нельзя удалить последний."); return; }
+  // 3. Запрос на удаление
+  const requestDeleteAquarium = (id) => {
+    if (aquariums.length <= 1) { alert("Нельзя удалить единственный аквариум."); return; }
+    setDeleteConfirmationId(id);
+  };
+
+  // 4. Подтверждение удаления
+  const confirmDeleteAquarium = async () => {
+    if (!deleteConfirmationId) return;
+    const list = aquariums.filter(aq => aq.id !== deleteConfirmationId);
     await updateDoc(doc(db, "users", user.uid), { aquariums: list });
-    if (selectedAqId === id) setSelectedAqId(list[0].id);
+    
+    // Если удалили выбранный, переключаемся на первый доступный
+    if (selectedAqId === deleteConfirmationId) {
+        setSelectedAqId(list.length > 0 ? list[0].id : null);
+    }
+    
+    setDeleteConfirmationId(null);
+    setEditingSettingsId(null); // Закрыть настройки, если были открыты
   };
 
-  // Редактирование имени и объема
+  // Редактирование имени и объема существующего
   const openSettings = (aq) => {
       setEditingSettingsId(aq.id);
       setTempName(aq.name);
@@ -250,14 +281,11 @@ export default function App() {
   // --- ПОДМЕНА ВОДЫ ---
   const performWaterChange = async () => {
       if (!wcAmount || wcAmount <= 0) return;
-      
       const aq = aquariums.find(a => a.id === waterChangeModal);
       if (!aq) return;
 
-      // Конвертация в единицы аквариума для расчета %
       let amountInAqUnits = parseFloat(wcAmount);
       if (wcUnit !== aq.volumeUnit) {
-          // Простая конвертация
           if (wcUnit === 'Gal' && aq.volumeUnit === 'L') amountInAqUnits = amountInAqUnits * 3.785;
           if (wcUnit === 'L' && aq.volumeUnit === 'Gal') amountInAqUnits = amountInAqUnits / 3.785;
       }
@@ -274,8 +302,8 @@ export default function App() {
       setWaterChangeModal(null);
       setWcAmount('');
       
-      if (percent > 10) alert(`Внимание! Вы подменили ${percent.toFixed(1)}%. Это может вызвать стресс у гидробионтов.`);
-      else alert(`Подмена ${percent.toFixed(1)}% записана. Отличная работа!`);
+      if (percent > 10) alert(`Внимание! Вы подменили ${percent.toFixed(1)}%. Это риск для стабильности.`);
+      else alert(`Подмена ${percent.toFixed(1)}% записана.`);
   };
 
   // --- Кораллы ---
@@ -303,17 +331,13 @@ export default function App() {
   };
 
   const getStabilityInfo = (aq) => {
-      if (!aq.lastWaterChange) return { status: 'bad', text: 'Нет данных о подменах', color: 'text-red-400' };
-      
+      if (!aq.lastWaterChange) return { status: 'bad', text: 'Нет данных', color: 'text-red-400' };
       const lastDate = new Date(aq.lastWaterChange);
       const diffDays = Math.floor((new Date() - lastDate) / (1000 * 60 * 60 * 24));
       
-      if (aq.stabilityStatus === 'destabilized' && diffDays < 2) {
-          return { status: 'warning', text: 'Риск дестабилизации (большая подмена)', color: 'text-yellow-400' };
-      }
-      
-      if (diffDays > 7) return { status: 'bad', text: `Подмена просрочена (${diffDays} дн.)`, color: 'text-red-400' };
-      return { status: 'good', text: 'Система стабильна', color: 'text-green-400' };
+      if (aq.stabilityStatus === 'destabilized' && diffDays < 2) return { status: 'warning', text: 'Риск дестабилизации', color: 'text-yellow-400' };
+      if (diffDays > 7) return { status: 'bad', text: `Просрочено (${diffDays} дн.)`, color: 'text-red-400' };
+      return { status: 'good', text: 'Стабильно', color: 'text-green-400' };
   };
 
   // --- ЭКРАНЫ ---
@@ -328,7 +352,7 @@ export default function App() {
              <MapPin size={14} className="mt-0.5" /> {userData?.personalInfo?.city || 'Город'}
           </div>
         </div>
-        <button onClick={addNewAquarium} className="bg-cyan-600/20 text-cyan-400 p-2 rounded-xl border border-cyan-600/50 hover:bg-cyan-600 hover:text-white transition-colors">
+        <button onClick={startCreatingAquarium} className="bg-cyan-600/20 text-cyan-400 p-2 rounded-xl border border-cyan-600/50 hover:bg-cyan-600 hover:text-white transition-colors">
           <Plus size={24} />
         </button>
       </div>
@@ -340,21 +364,16 @@ export default function App() {
         return (
           <div key={aq.id} className="space-y-3">
             <div className="bg-gradient-to-br from-cyan-900 to-blue-950 p-6 rounded-2xl shadow-lg border border-cyan-800/50 relative group">
-              
-              {/* Header */}
               <div className="flex justify-between items-start mb-4">
                 <div className="flex items-center gap-2">
                     <h2 className="text-2xl font-bold text-white">{aq.name}</h2>
-                    <button onClick={() => openSettings(aq)} className="text-cyan-400 opacity-80 hover:opacity-100">
-                      <Settings size={18} />
-                    </button>
+                    <button onClick={() => openSettings(aq)} className="text-cyan-400 opacity-80 hover:opacity-100"><Settings size={18} /></button>
                 </div>
                 <div className={`text-xs font-bold px-2 py-1 rounded border ${stability.status === 'good' ? 'bg-green-900/30 border-green-500 text-green-400' : 'bg-red-900/30 border-red-500 text-red-400'}`}>
                     {stability.text}
                 </div>
               </div>
 
-              {/* Params Grid */}
               <div className="grid grid-cols-3 gap-3 mb-4">
                 <div className="bg-white/10 p-2 rounded-xl backdrop-blur-sm text-center">
                   <div className="text-cyan-200 text-[10px] font-bold uppercase">Соленость</div>
@@ -369,11 +388,10 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Water Change Action */}
               <div className="flex items-center justify-between bg-black/20 p-3 rounded-xl border border-white/5">
                   <div className="text-xs text-slate-400">
                       Объем: {aq.volume} {aq.volumeUnit}<br/>
-                      Последняя подмена: {aq.lastWaterChange ? new Date(aq.lastWaterChange).toLocaleDateString() : 'Нет'}
+                      Подмена: {aq.lastWaterChange ? new Date(aq.lastWaterChange).toLocaleDateString() : 'Нет'}
                   </div>
                   <button onClick={() => setWaterChangeModal(aq.id)} className="bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-bold py-2 px-4 rounded-lg flex items-center gap-2">
                       <RefreshCw size={14}/> Подмена
@@ -381,7 +399,6 @@ export default function App() {
               </div>
             </div>
 
-            {/* Recommendations List */}
             <div className="px-2 space-y-2">
               {recs.map((rec, i) => (
                 <div key={i} className={`p-3 rounded-xl text-sm flex gap-2 items-start ${rec.type === 'alert' ? 'bg-red-900/20 border border-red-900/50 text-red-200' : 'bg-yellow-900/20 border border-yellow-900/50 text-yellow-200'}`}>
@@ -396,15 +413,13 @@ export default function App() {
     </div>
   );
 
-  // 2. PARAMETERS VIEW
+  // 2. PARAMETERS VIEW (Без изменений)
   const ParametersView = () => {
     const activeAq = aquariums.find(a => a.id === selectedAqId) || aquariums[0];
     const [localParams, setLocalParams] = useState(activeAq ? activeAq.params : DEFAULT_PARAMS);
     useEffect(() => { if(activeAq) setLocalParams(activeAq.params); }, [activeAq]);
     const handleSave = () => { if(activeAq) saveParamsForAquarium(activeAq.id, localParams); };
-
     if (!activeAq) return <div className="text-center mt-10">Создайте аквариум</div>;
-
     return (
       <div className="pb-24 animate-fadeIn">
         <h2 className="text-2xl font-bold text-white mb-4">Ввод данных</h2>
@@ -428,7 +443,7 @@ export default function App() {
     );
   };
 
-  // 3. LIVESTOCK VIEW
+  // 3. LIVESTOCK VIEW (Без изменений)
   const LivestockView = () => {
     const [isAdding, setIsAdding] = useState(false);
     const [name, setName] = useState('');
@@ -437,7 +452,6 @@ export default function App() {
       const itemAqId = l.aqId || (aquariums.length > 0 ? aquariums[0].id : null);
       return itemAqId === selectedAqId;
     });
-
     return (
       <div className="pb-24 animate-fadeIn">
          <h2 className="text-2xl font-bold text-white mb-4">Жители</h2>
@@ -471,7 +485,7 @@ export default function App() {
     );
   };
 
-  // 4. PROFILE
+  // 4. PROFILE VIEW (Без изменений)
   const ProfileView = () => {
     const [editMode, setEditMode] = useState(false);
     const [profileData, setProfileData] = useState({ fullName: userData?.personalInfo?.fullName || '', city: userData?.personalInfo?.city || '', dob: userData?.personalInfo?.dob || '' });
@@ -479,14 +493,12 @@ export default function App() {
         if (!userData?.subscription?.expiresAt) return 0;
         return Math.max(0, Math.ceil((new Date(userData.subscription.expiresAt) - new Date()) / (1000 * 60 * 60 * 24)));
     }, [userData]);
-
     const handleSaveProfile = async () => {
         if (!user) return;
         await updateDoc(doc(db, "users", user.uid), { "personalInfo.fullName": profileData.fullName, "personalInfo.city": profileData.city, "personalInfo.dob": profileData.dob });
         setEditMode(false);
         alert("Профиль обновлен!");
     };
-
     return (
       <div className="pb-24 animate-fadeIn space-y-6">
         <div className="bg-slate-800 p-6 rounded-2xl border border-slate-700 flex items-center gap-4">
@@ -513,7 +525,7 @@ export default function App() {
     );
   };
 
-  // --- LOGIN/REGISTER FORMS ---
+  // --- LOGIN/REGISTER FORMS (Без изменений) ---
   if (!user) {
     if (loading) return <div className="min-h-screen bg-slate-950 flex items-center justify-center text-cyan-500">Загрузка...</div>;
     return (
@@ -534,13 +546,55 @@ export default function App() {
     );
   }
 
-  // --- МОДАЛКИ ---
+  // --- МОДАЛКИ (Render) ---
+  
+  // 1. Заполнить город
   if (missingCityModal) {
       return (
           <div className="fixed inset-0 bg-black/90 z-50 flex items-center justify-center p-6"><div className="bg-slate-900 p-6 rounded-2xl border border-slate-700 w-full max-w-sm"><h2 className="text-xl font-bold text-white mb-2">Заполните профиль</h2><p className="text-slate-400 text-sm mb-4">Укажите ваш город.</p><input type="text" placeholder="Город" value={city} onChange={e=>setCity(e.target.value)} className="w-full bg-slate-950 border border-slate-700 text-white p-3 rounded-xl mb-4" /><button onClick={saveMissingCity} className="w-full bg-cyan-600 text-white font-bold py-3 rounded-xl">Сохранить</button></div></div>
       )
   }
 
+  // 2. Создание аквариума
+  if (isCreating) {
+      return (
+          <div className="fixed inset-0 bg-black/90 z-50 flex items-center justify-center p-6">
+              <div className="bg-slate-900 p-6 rounded-2xl border border-slate-700 w-full max-w-sm">
+                  <h2 className="text-xl font-bold text-white mb-4">Новый аквариум</h2>
+                  <div className="space-y-4">
+                      <div><label className="text-xs text-slate-500 font-bold uppercase mb-1 block">Название</label><input autoFocus type="text" value={newAqData.name} onChange={e=>setNewAqData({...newAqData, name: e.target.value})} className="w-full bg-slate-950 border border-slate-700 text-white p-3 rounded-lg outline-none"/></div>
+                      <div><label className="text-xs text-slate-500 font-bold uppercase mb-1 block">Общий объем системы</label>
+                          <div className="flex gap-2">
+                              <input type="number" value={newAqData.volume} onChange={e=>setNewAqData({...newAqData, volume: e.target.value})} className="w-full bg-slate-950 border border-slate-700 text-white p-3 rounded-lg outline-none"/>
+                              <select value={newAqData.unit} onChange={e=>setNewAqData({...newAqData, unit: e.target.value})} className="bg-slate-800 border border-slate-700 text-white rounded-lg px-3 outline-none"><option value="L">L</option><option value="Gal">Gal</option></select>
+                          </div>
+                      </div>
+                      <button onClick={confirmCreateAquarium} className="w-full bg-cyan-600 text-white font-bold py-3 rounded-xl">Создать</button>
+                  </div>
+                  <button onClick={()=>setIsCreating(false)} className="absolute top-4 right-4 text-slate-500"><X size={20}/></button>
+              </div>
+          </div>
+      )
+  }
+
+  // 3. Подтверждение удаления
+  if (deleteConfirmationId) {
+      return (
+          <div className="fixed inset-0 bg-black/90 z-50 flex items-center justify-center p-6">
+              <div className="bg-slate-900 p-6 rounded-2xl border border-red-900/50 w-full max-w-sm text-center">
+                  <div className="w-16 h-16 bg-red-900/20 rounded-full flex items-center justify-center mx-auto mb-4 text-red-500"><Trash2 size={32}/></div>
+                  <h2 className="text-xl font-bold text-white mb-2">Удалить аквариум?</h2>
+                  <p className="text-slate-400 text-sm mb-6">Это действие нельзя отменить. Все данные тестов и настройки этого аквариума будут удалены.</p>
+                  <div className="flex gap-3">
+                      <button onClick={()=>setDeleteConfirmationId(null)} className="flex-1 bg-slate-800 text-white py-3 rounded-xl">Отмена</button>
+                      <button onClick={confirmDeleteAquarium} className="flex-1 bg-red-600 text-white py-3 rounded-xl font-bold">Удалить</button>
+                  </div>
+              </div>
+          </div>
+      )
+  }
+
+  // 4. Редактирование настроек
   if (editingSettingsId) {
       return (
           <div className="fixed inset-0 bg-black/90 z-50 flex items-center justify-center p-6"><div className="bg-slate-900 p-6 rounded-2xl border border-slate-700 w-full max-w-sm">
@@ -554,7 +608,7 @@ export default function App() {
                       </div>
                   </div>
                   <div className="flex gap-3 pt-2">
-                      <button onClick={()=>deleteAquarium(editingSettingsId)} className="flex-1 bg-red-900/30 text-red-400 py-3 rounded-xl border border-red-900/50">Удалить</button>
+                      <button onClick={()=>requestDeleteAquarium(editingSettingsId)} className="flex-1 bg-red-900/30 text-red-400 py-3 rounded-xl border border-red-900/50">Удалить</button>
                       <button onClick={saveSettings} className="flex-1 bg-cyan-600 text-white py-3 rounded-xl font-bold">Сохранить</button>
                   </div>
               </div>
@@ -563,11 +617,11 @@ export default function App() {
       )
   }
 
+  // 5. Подмена воды
   if (waterChangeModal) {
       const aq = aquariums.find(a => a.id === waterChangeModal);
       const currentVol = parseFloat(wcAmount || 0);
       const aqVol = parseFloat(aq?.volume || 100);
-      // Приводим к одной единице для расчета %
       let calcVol = currentVol;
       if (wcUnit !== aq.volumeUnit) {
           if (wcUnit === 'Gal' && aq.volumeUnit === 'L') calcVol = currentVol * 3.785;
