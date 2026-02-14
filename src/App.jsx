@@ -43,6 +43,60 @@ const firebaseConfig = {
 // --- Google Gemini API Key ---
 const GOOGLE_API_KEY = "AIzaSyBH2CWzRv4vmJsnX1_j15MbKAE4lDgABn8"; 
 
+// Универсальная функция вызова Gemini API с автоматическим подбором модели
+const callGeminiVision = async (imageData, mimeType, prompt) => {
+  const modelsToTry = [
+    'gemini-1.5-pro-latest',
+    'gemini-1.5-pro',
+    'gemini-pro-vision',
+    'gemini-1.5-flash-latest',
+    'gemini-1.5-flash'
+  ];
+
+  for (const model of modelsToTry) {
+    try {
+      console.log(`🔍 Trying model: ${model}`);
+      const response = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GOOGLE_API_KEY}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            contents: [{
+              parts: [
+                { text: prompt },
+                { inline_data: { mime_type: mimeType, data: imageData } }
+              ]
+            }]
+          })
+        }
+      );
+
+      const data = await response.json();
+
+      if (response.status === 404) {
+        console.log(`❌ Model ${model} not found, trying next...`);
+        continue;
+      }
+
+      if (data.error) {
+        console.log(`❌ Error with ${model}:`, data.error.message);
+        if (data.error.status === 'NOT_FOUND') continue;
+        throw new Error(data.error.message);
+      }
+
+      console.log(`✅ Success with model: ${model}`);
+      return data;
+
+    } catch (error) {
+      console.log(`❌ Failed ${model}:`, error.message);
+      continue;
+    }
+  }
+
+  throw new Error('Все модели Gemini API недоступны. Попробуйте позже или проверьте настройки API ключа.');
+}; 
+
 // Инициализация сервисов
 let auth, db;
 try {
@@ -358,25 +412,11 @@ export default function App() {
                 r.readAsDataURL(file);
             });
             
-            // Используем простой подход с Gemini API
-            const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GOOGLE_API_KEY}`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                    contents: [{ 
-                        parts: [
-                            { text: "Analyze this aquarium water test report image. Extract the following parameters if visible: Salinity (in ppt), KH/Alkalinity (in dKH), Calcium (in ppm), Magnesium (in ppm), Nitrate/NO3 (in ppm), Phosphate/PO4 (in ppm). Return ONLY valid JSON with keys: salinity, kh, ca, mg, no3, po4. Use numbers only. If value not found, use null. No markdown, no explanations." },
-                            { inline_data: { mime_type: file.type, data: base64Data } }
-                        ]
-                    }]
-                })
-            });
-            
-            const data = await response.json();
-            
-            if (data.error) {
-                throw new Error(data.error.message || JSON.stringify(data.error));
-            }
+            const data = await callGeminiVision(
+                base64Data,
+                file.type,
+                "Analyze this aquarium water test report image. Extract the following parameters if visible: Salinity (in ppt), KH/Alkalinity (in dKH), Calcium (in ppm), Magnesium (in ppm), Nitrate/NO3 (in ppm), Phosphate/PO4 (in ppm). Return ONLY valid JSON with keys: salinity, kh, ca, mg, no3, po4. Use numbers only. If value not found, use null. No markdown, no explanations."
+            );
             
             let text = data.candidates?.[0]?.content?.parts?.[0]?.text;
             if (text) {
@@ -395,7 +435,7 @@ export default function App() {
             }
         } catch (e) { 
             console.error('ICP Scan Error:', e);
-            alert(`❌ Ошибка сканирования: ${e.message}\n\nПроверьте консоль для деталей.`); 
+            alert(`❌ Ошибка: ${e.message}`); 
         } finally { 
             setIsAnalyzing(false); 
         }
@@ -650,12 +690,14 @@ export default function App() {
 
     const testApi = async () => {
         try {
+            console.log("🔍 Проверка доступных моделей Gemini API...");
+            
             // Проверяем список моделей
             const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${GOOGLE_API_KEY}`);
             const data = await response.json();
             
             if (data.error) {
-                console.error("API Error:", data.error);
+                console.error("❌ API Error:", data.error);
                 alert(`❌ Ошибка API:\n${data.error.message || JSON.stringify(data.error)}`);
                 return;
             }
@@ -665,22 +707,38 @@ export default function App() {
                     m.supportedGenerationMethods?.includes('generateContent')
                 );
                 
-                console.log("=== ДОСТУПНЫЕ МОДЕЛИ ===");
-                console.log("Всего:", data.models.length);
-                console.log("С поддержкой Vision:", visionModels.length);
-                console.log("\nПолный список моделей:");
-                data.models.forEach(m => {
-                    console.log(`- ${m.name}`, m.supportedGenerationMethods);
+                console.log("=== РЕЗУЛЬТАТЫ ПРОВЕРКИ ===");
+                console.log(`✅ Всего моделей: ${data.models.length}`);
+                console.log(`✅ С Vision (generateContent): ${visionModels.length}`);
+                console.log("\n📋 Полный список Vision моделей:");
+                visionModels.forEach(m => {
+                    console.log(`  - ${m.name}`);
                 });
                 
-                alert(`✅ API подключен успешно!\n\n` +
-                      `Всего моделей: ${data.models.length}\n` +
-                      `С Vision: ${visionModels.length}\n\n` +
-                      `Список в консоли (F12)`);
+                console.log("\n🧪 Тестируем модели в порядке приоритета:");
+                const modelsToTest = [
+                    'gemini-1.5-pro-latest',
+                    'gemini-1.5-pro', 
+                    'gemini-pro-vision',
+                    'gemini-1.5-flash-latest',
+                    'gemini-1.5-flash'
+                ];
+                
+                for (const model of modelsToTest) {
+                    const exists = visionModels.some(m => m.name.includes(model));
+                    console.log(`  ${exists ? '✅' : '❌'} ${model}`);
+                }
+                
+                alert(
+                    `✅ API подключен!\n\n` +
+                    `Всего моделей: ${data.models.length}\n` +
+                    `Vision моделей: ${visionModels.length}\n\n` +
+                    `Проверьте консоль (F12) для списка`
+                );
             }
         } catch (e) { 
-            console.error("Network Error:", e);
-            alert(`❌ Ошибка сети: ${e.message}\n\nПроверьте подключение к интернету.`); 
+            console.error("❌ Network Error:", e);
+            alert(`❌ Ошибка сети:\n${e.message}`); 
         }
     };
 
@@ -699,30 +757,16 @@ export default function App() {
                 r.readAsDataURL(file);
             });
             
-            // Используем v1beta API с gemini-1.5-flash
-            const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GOOGLE_API_KEY}`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                    contents: [{ 
-                        parts: [
-                            { text: "Проанализируй это фото аквариума или его обитателей. Определи возможные проблемы со здоровьем: RTN/STN у кораллов, паразиты, болезни рыб (ich, velvet и другие). Ответь на русском языке. Будь конкретен и лаконичен. Сосредоточься на рекомендациях по лечению и диагностике." },
-                            { inline_data: { mime_type: file.type, data: base64Data } }
-                        ]
-                    }]
-                })
-            });
-            
-            const data = await response.json();
-            
-            if (data.error) {
-                throw new Error(data.error.message || JSON.stringify(data.error));
-            }
+            const data = await callGeminiVision(
+                base64Data,
+                file.type,
+                "Проанализируй это фото аквариума или его обитателей. Определи возможные проблемы со здоровьем: RTN/STN у кораллов, паразиты, болезни рыб (ich, velvet и другие). Ответь на русском языке. Будь конкретен и лаконичен. Сосредоточься на рекомендациях по лечению и диагностике."
+            );
             
             setResult(data.candidates?.[0]?.content?.parts?.[0]?.text || "Не удалось получить диагностические данные.");
         } catch (e) { 
             console.error('AI Doctor Error:', e);
-            setResult(`❌ Ошибка анализа: ${e.message}\n\nПроверьте консоль браузера для деталей.`); 
+            setResult(`❌ Ошибка: ${e.message}`); 
         } finally { 
             setAnalyzing(false); 
         }
