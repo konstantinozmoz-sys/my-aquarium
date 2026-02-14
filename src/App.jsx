@@ -2,7 +2,8 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { 
   Droplets, Activity, Fish, Plus, Save, AlertTriangle, 
   CheckCircle, Trash2, User, LogOut, Crown, Mail, MapPin, Lock,
-  Edit2, X, ChevronDown, Calendar, RefreshCw, Settings, Info
+  Edit2, X, ChevronDown, Calendar, RefreshCw, Settings, Info,
+  Camera, FileText, UploadCloud, Loader2, Stethoscope, Sparkles, ScanLine
 } from 'lucide-react';
 
 // --- Подключение Firebase ---
@@ -37,6 +38,9 @@ const firebaseConfig = {
   appId: "1:3819422761:web:3f40c57060ea878987c838",
   measurementId: "G-RDWEZCWREF"
 };
+
+// --- Google Gemini API Key ---
+const GOOGLE_API_KEY = "AIzaSyDRZyOZmC7qIogDly4DPCfiU2bD01EHPpI"; 
 
 // Инициализация
 let auth, db;
@@ -209,15 +213,12 @@ export default function App() {
   const saveMissingCity = async () => { if(!city) return; await updateDoc(doc(db, "users", user.uid), { "personalInfo.city": city }); setMissingCityModal(false); };
 
   // --- Управление Аквариумами ---
-  
-  // 1. Открыть модалку создания
   const startCreatingAquarium = () => {
     if (aquariums.length >= 3) { alert("Максимум 3 аквариума."); return; }
     setNewAqData({ name: `Аквариум #${aquariums.length + 1}`, volume: '100', unit: 'L' });
     setIsCreating(true);
   };
 
-  // 2. Сохранить новый аквариум
   const confirmCreateAquarium = async () => {
     if (!newAqData.name) { alert("Введите название"); return; }
     if (!newAqData.volume || parseFloat(newAqData.volume) <= 0) { alert("Введите корректный объем"); return; }
@@ -235,28 +236,20 @@ export default function App() {
     setIsCreating(false);
   };
 
-  // 3. Запрос на удаление
   const requestDeleteAquarium = (id) => {
     if (aquariums.length <= 1) { alert("Нельзя удалить единственный аквариум."); return; }
     setDeleteConfirmationId(id);
   };
 
-  // 4. Подтверждение удаления
   const confirmDeleteAquarium = async () => {
     if (!deleteConfirmationId) return;
     const list = aquariums.filter(aq => aq.id !== deleteConfirmationId);
     await updateDoc(doc(db, "users", user.uid), { aquariums: list });
-    
-    // Если удалили выбранный, переключаемся на первый доступный
-    if (selectedAqId === deleteConfirmationId) {
-        setSelectedAqId(list.length > 0 ? list[0].id : null);
-    }
-    
+    if (selectedAqId === deleteConfirmationId) setSelectedAqId(list.length > 0 ? list[0].id : null);
     setDeleteConfirmationId(null);
-    setEditingSettingsId(null); // Закрыть настройки, если были открыты
+    setEditingSettingsId(null); 
   };
 
-  // Редактирование имени и объема существующего
   const openSettings = (aq) => {
       setEditingSettingsId(aq.id);
       setTempName(aq.name);
@@ -413,33 +406,200 @@ export default function App() {
     </div>
   );
 
-  // 2. PARAMETERS VIEW (Без изменений)
+  // 2. PARAMETERS VIEW (С НАСТОЯЩИМ ИИ АНАЛИЗОМ)
   const ParametersView = () => {
     const activeAq = aquariums.find(a => a.id === selectedAqId) || aquariums[0];
     const [localParams, setLocalParams] = useState(activeAq ? activeAq.params : DEFAULT_PARAMS);
+    const [isAnalyzing, setIsAnalyzing] = useState(false); 
+
     useEffect(() => { if(activeAq) setLocalParams(activeAq.params); }, [activeAq]);
     const handleSave = () => { if(activeAq) saveParamsForAquarium(activeAq.id, localParams); };
+    
+    // --- ИИ АНАЛИЗАТОР ICP ТЕСТОВ ---
+    const handleFileUpload = async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        setIsAnalyzing(true);
+        
+        try {
+            // Конвертация в base64
+            const base64Data = await new Promise((resolve) => {
+                const r = new FileReader();
+                r.onloadend = () => resolve(r.result.split(',')[1]);
+                r.readAsDataURL(file);
+            });
+
+            // Запрос к Gemini
+            const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GOOGLE_API_KEY}`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    contents: [{
+                        parts: [
+                            { text: "Analyze this image of an aquarium water test report (ICP). Extract the following values: Salinity, KH (Alkalinity), Calcium, Magnesium, Nitrate, Phosphate. Return ONLY a JSON object with keys: salinity, kh, ca, mg, no3, po4. Use numbers only (no units). If a value is missing or cannot be read, use null. Do not use Markdown formatting." },
+                            { inline_data: { mime_type: file.type, data: base64Data } }
+                        ]
+                    }]
+                })
+            });
+
+            const data = await response.json();
+            
+            if (data.error) throw new Error(data.error.message);
+
+            // Парсинг ответа (удаляем возможные markdown кавычки)
+            let text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+            text = text.replace(/```json/g, '').replace(/```/g, '').trim();
+            const result = JSON.parse(text);
+
+            // Обновляем состояние (только найденные значения)
+            setLocalParams(prev => ({
+                ...prev,
+                salinity: result.salinity || prev.salinity,
+                kh: result.kh || prev.kh,
+                ca: result.ca || prev.ca,
+                mg: result.mg || prev.mg,
+                no3: result.no3 || prev.no3,
+                po4: result.po4 || prev.po4,
+            }));
+
+            alert("Данные успешно распознаны и заполнены!");
+
+        } catch (error) {
+            console.error(error);
+            alert("Не удалось распознать данные. Попробуйте еще раз или введите вручную.");
+        } finally {
+            setIsAnalyzing(false);
+        }
+    };
+
     if (!activeAq) return <div className="text-center mt-10">Создайте аквариум</div>;
+    
     return (
       <div className="pb-24 animate-fadeIn">
         <h2 className="text-2xl font-bold text-white mb-4">Ввод данных</h2>
-        <div className="mb-6 bg-slate-800 p-2 rounded-xl flex items-center relative">
+        
+        <div className="mb-4 bg-slate-800 p-2 rounded-xl flex items-center relative">
           <div className="absolute left-4 text-slate-400 pointer-events-none"><Fish size={20}/></div>
           <select className="w-full bg-transparent text-white font-bold p-3 pl-10 outline-none appearance-none" value={selectedAqId || ''} onChange={(e) => setSelectedAqId(e.target.value)}>
             {aquariums.map(aq => <option key={aq.id} value={aq.id} className="bg-slate-900">{aq.name}</option>)}
           </select>
           <div className="absolute right-4 text-slate-400 pointer-events-none"><ChevronDown size={20}/></div>
         </div>
+
+        <div className="mb-6">
+            <input type="file" id="icp-upload" className="hidden" accept="image/*,application/pdf" onChange={handleFileUpload} />
+            <label htmlFor="icp-upload" className={`w-full flex items-center justify-center gap-3 p-4 rounded-xl border border-dashed border-cyan-500/50 bg-cyan-900/10 cursor-pointer transition-all ${isAnalyzing ? 'opacity-50 pointer-events-none' : 'hover:bg-cyan-900/20 active:scale-95'}`}>
+                {isAnalyzing ? (
+                    <>
+                        <Loader2 size={24} className="text-cyan-400 animate-spin"/>
+                        <span className="text-cyan-400 font-medium">ИИ анализирует документ...</span>
+                    </>
+                ) : (
+                    <>
+                        <ScanLine size={24} className="text-cyan-400"/>
+                        <span className="text-cyan-400 font-medium">Сканировать ICP / Тест</span>
+                    </>
+                )}
+            </label>
+            <div className="text-center mt-2 text-[10px] text-slate-500">Загрузите фото таблицы ICP или результатов тестов</div>
+        </div>
+
         <div className="space-y-3">
           {Object.entries(IDEAL_PARAMS).map(([key, c]) => (
             <div key={key} className="bg-slate-800 p-3 rounded-xl border border-slate-700 flex justify-between items-center">
               <div><div className="text-slate-300 font-medium">{c.name}</div><div className="text-[10px] text-slate-500">Норма: {c.min}-{c.max} {c.unit}</div></div>
-              <div className="relative w-24"><input type="number" step="0.1" value={localParams[key]} onChange={e=>setLocalParams({...localParams, [key]: e.target.value})} className="w-full bg-slate-900 text-white p-2 rounded text-center border border-slate-600 outline-none focus:border-cyan-500" /></div>
+              <div className="relative w-24"><input type="number" step="0.1" value={localParams[key] || ''} onChange={e=>setLocalParams({...localParams, [key]: e.target.value})} className="w-full bg-slate-900 text-white p-2 rounded text-center border border-slate-600 outline-none focus:border-cyan-500" /></div>
             </div>
           ))}
           <button onClick={handleSave} className="w-full bg-cyan-600 text-white p-4 rounded-xl font-bold flex justify-center gap-2 mt-4"><Save size={20}/> Сохранить</button>
         </div>
       </div>
+    );
+  };
+
+  // 3. DOCTOR VIEW
+  const DoctorView = () => {
+    const [analyzing, setAnalyzing] = useState(false);
+    const [result, setResult] = useState(null);
+    const [imagePreview, setImagePreview] = useState(null);
+
+    const identifyDisease = async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onloadend = () => setImagePreview(reader.result);
+        reader.readAsDataURL(file);
+
+        setAnalyzing(true);
+        setResult(null);
+
+        try {
+            const base64Data = await new Promise((resolve) => {
+                const r = new FileReader();
+                r.onloadend = () => resolve(r.result.split(',')[1]);
+                r.readAsDataURL(file);
+            });
+
+            const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GOOGLE_API_KEY}`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    contents: [{
+                        parts: [
+                            { text: "Ты эксперт морской аквариумист и ветеринар кораллов. Проанализируй это изображение. Определи: 1) Здоров ли коралл/рыба? 2) Есть ли признаки болезней (RTN, STN, паразиты, обесцвечивание)? 3) Дай краткие рекомендации по лечению или улучшению условий. Отвечай на русском языке, кратко и по делу." },
+                            { inline_data: { mime_type: file.type, data: base64Data } }
+                        ]
+                    }]
+                })
+            });
+
+            const data = await response.json();
+            if (data.error) throw new Error(data.error.message);
+            const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+            setResult(text || "Не удалось распознать проблему.");
+
+        } catch (error) {
+            console.error(error);
+            setResult("Ошибка анализа: " + error.message);
+        } finally {
+            setAnalyzing(false);
+        }
+    };
+
+    return (
+        <div className="pb-24 animate-fadeIn space-y-6">
+            <div className="bg-gradient-to-r from-teal-900 to-emerald-900 p-6 rounded-2xl border border-teal-700/50 shadow-lg relative overflow-hidden">
+                <Stethoscope className="absolute right-[-10px] bottom-[-20px] text-teal-500/20 w-40 h-40 transform rotate-12" />
+                <h2 className="text-2xl font-bold text-white mb-2 relative z-10">Доктор Риф</h2>
+                <p className="text-teal-200 text-sm relative z-10 mb-4">
+                    Загрузите фото больного коралла или рыбы. Искусственный интеллект проанализирует симптомы и подскажет лечение.
+                </p>
+                <input type="file" id="doc-upload" className="hidden" accept="image/*" onChange={identifyDisease} />
+                <label htmlFor="doc-upload" className={`w-full bg-white text-teal-900 font-bold py-3 rounded-xl flex items-center justify-center gap-2 cursor-pointer hover:bg-teal-50 transition-colors relative z-10 ${analyzing ? 'opacity-50 pointer-events-none' : ''}`}>
+                    {analyzing ? <Loader2 className="animate-spin" /> : <Camera size={20} />}
+                    {analyzing ? 'Изучаю пациента...' : 'Сделать фото / Загрузить'}
+                </label>
+            </div>
+            {imagePreview && (
+                <div className="rounded-xl overflow-hidden border border-slate-700">
+                    <img src={imagePreview} alt="Preview" className="w-full h-64 object-cover" />
+                </div>
+            )}
+            {result && (
+                <div className="bg-slate-800 p-5 rounded-2xl border border-slate-700 animate-slideUp">
+                    <div className="flex items-center gap-2 mb-3">
+                        <Sparkles className="text-teal-400" size={20}/>
+                        <h3 className="text-lg font-bold text-white">Диагноз AI</h3>
+                    </div>
+                    <div className="text-slate-300 text-sm leading-relaxed whitespace-pre-wrap">
+                        {result}
+                    </div>
+                </div>
+            )}
+        </div>
     );
   };
 
@@ -547,77 +707,30 @@ export default function App() {
   }
 
   // --- МОДАЛКИ (Render) ---
-  
-  // 1. Заполнить город
   if (missingCityModal) {
       return (
           <div className="fixed inset-0 bg-black/90 z-50 flex items-center justify-center p-6"><div className="bg-slate-900 p-6 rounded-2xl border border-slate-700 w-full max-w-sm"><h2 className="text-xl font-bold text-white mb-2">Заполните профиль</h2><p className="text-slate-400 text-sm mb-4">Укажите ваш город.</p><input type="text" placeholder="Город" value={city} onChange={e=>setCity(e.target.value)} className="w-full bg-slate-950 border border-slate-700 text-white p-3 rounded-xl mb-4" /><button onClick={saveMissingCity} className="w-full bg-cyan-600 text-white font-bold py-3 rounded-xl">Сохранить</button></div></div>
       )
   }
 
-  // 2. Создание аквариума
   if (isCreating) {
       return (
-          <div className="fixed inset-0 bg-black/90 z-50 flex items-center justify-center p-6">
-              <div className="bg-slate-900 p-6 rounded-2xl border border-slate-700 w-full max-w-sm">
-                  <h2 className="text-xl font-bold text-white mb-4">Новый аквариум</h2>
-                  <div className="space-y-4">
-                      <div><label className="text-xs text-slate-500 font-bold uppercase mb-1 block">Название</label><input autoFocus type="text" value={newAqData.name} onChange={e=>setNewAqData({...newAqData, name: e.target.value})} className="w-full bg-slate-950 border border-slate-700 text-white p-3 rounded-lg outline-none"/></div>
-                      <div><label className="text-xs text-slate-500 font-bold uppercase mb-1 block">Общий объем системы</label>
-                          <div className="flex gap-2">
-                              <input type="number" value={newAqData.volume} onChange={e=>setNewAqData({...newAqData, volume: e.target.value})} className="w-full bg-slate-950 border border-slate-700 text-white p-3 rounded-lg outline-none"/>
-                              <select value={newAqData.unit} onChange={e=>setNewAqData({...newAqData, unit: e.target.value})} className="bg-slate-800 border border-slate-700 text-white rounded-lg px-3 outline-none"><option value="L">L</option><option value="Gal">Gal</option></select>
-                          </div>
-                      </div>
-                      <button onClick={confirmCreateAquarium} className="w-full bg-cyan-600 text-white font-bold py-3 rounded-xl">Создать</button>
-                  </div>
-                  <button onClick={()=>setIsCreating(false)} className="absolute top-4 right-4 text-slate-500"><X size={20}/></button>
-              </div>
-          </div>
+          <div className="fixed inset-0 bg-black/90 z-50 flex items-center justify-center p-6"><div className="bg-slate-900 p-6 rounded-2xl border border-slate-700 w-full max-w-sm"><h2 className="text-xl font-bold text-white mb-4">Новый аквариум</h2><div className="space-y-4"><div><label className="text-xs text-slate-500 font-bold uppercase mb-1 block">Название</label><input autoFocus type="text" value={newAqData.name} onChange={e=>setNewAqData({...newAqData, name: e.target.value})} className="w-full bg-slate-950 border border-slate-700 text-white p-3 rounded-lg outline-none"/></div><div><label className="text-xs text-slate-500 font-bold uppercase mb-1 block">Общий объем системы</label><div className="flex gap-2"><input type="number" value={newAqData.volume} onChange={e=>setNewAqData({...newAqData, volume: e.target.value})} className="w-full bg-slate-950 border border-slate-700 text-white p-3 rounded-lg outline-none"/><select value={newAqData.unit} onChange={e=>setNewAqData({...newAqData, unit: e.target.value})} className="bg-slate-800 border border-slate-700 text-white rounded-lg px-3 outline-none"><option value="L">L</option><option value="Gal">Gal</option></select></div></div><button onClick={confirmCreateAquarium} className="w-full bg-cyan-600 text-white font-bold py-3 rounded-xl">Создать</button></div><button onClick={()=>setIsCreating(false)} className="absolute top-4 right-4 text-slate-500"><X size={20}/></button></div></div>
       )
   }
 
-  // 3. Подтверждение удаления
   if (deleteConfirmationId) {
       return (
-          <div className="fixed inset-0 bg-black/90 z-50 flex items-center justify-center p-6">
-              <div className="bg-slate-900 p-6 rounded-2xl border border-red-900/50 w-full max-w-sm text-center">
-                  <div className="w-16 h-16 bg-red-900/20 rounded-full flex items-center justify-center mx-auto mb-4 text-red-500"><Trash2 size={32}/></div>
-                  <h2 className="text-xl font-bold text-white mb-2">Удалить аквариум?</h2>
-                  <p className="text-slate-400 text-sm mb-6">Это действие нельзя отменить. Все данные тестов и настройки этого аквариума будут удалены.</p>
-                  <div className="flex gap-3">
-                      <button onClick={()=>setDeleteConfirmationId(null)} className="flex-1 bg-slate-800 text-white py-3 rounded-xl">Отмена</button>
-                      <button onClick={confirmDeleteAquarium} className="flex-1 bg-red-600 text-white py-3 rounded-xl font-bold">Удалить</button>
-                  </div>
-              </div>
-          </div>
+          <div className="fixed inset-0 bg-black/90 z-50 flex items-center justify-center p-6"><div className="bg-slate-900 p-6 rounded-2xl border border-red-900/50 w-full max-w-sm text-center"><div className="w-16 h-16 bg-red-900/20 rounded-full flex items-center justify-center mx-auto mb-4 text-red-500"><Trash2 size={32}/></div><h2 className="text-xl font-bold text-white mb-2">Удалить аквариум?</h2><p className="text-slate-400 text-sm mb-6">Это действие нельзя отменить.</p><div className="flex gap-3"><button onClick={()=>setDeleteConfirmationId(null)} className="flex-1 bg-slate-800 text-white py-3 rounded-xl">Отмена</button><button onClick={confirmDeleteAquarium} className="flex-1 bg-red-600 text-white py-3 rounded-xl font-bold">Удалить</button></div></div></div>
       )
   }
 
-  // 4. Редактирование настроек
   if (editingSettingsId) {
       return (
-          <div className="fixed inset-0 bg-black/90 z-50 flex items-center justify-center p-6"><div className="bg-slate-900 p-6 rounded-2xl border border-slate-700 w-full max-w-sm">
-              <h2 className="text-xl font-bold text-white mb-4">Настройки аквариума</h2>
-              <div className="space-y-4">
-                  <div><label className="text-xs text-slate-500 font-bold uppercase mb-1 block">Название</label><input type="text" value={tempName} onChange={e=>setTempName(e.target.value)} className="w-full bg-slate-950 border border-slate-700 text-white p-3 rounded-lg outline-none"/></div>
-                  <div><label className="text-xs text-slate-500 font-bold uppercase mb-1 block">Общий объем системы</label>
-                      <div className="flex gap-2">
-                          <input type="number" value={tempVolume} onChange={e=>setTempVolume(e.target.value)} className="w-full bg-slate-950 border border-slate-700 text-white p-3 rounded-lg outline-none"/>
-                          <select value={tempUnit} onChange={e=>setTempUnit(e.target.value)} className="bg-slate-800 border border-slate-700 text-white rounded-lg px-3 outline-none"><option value="L">L</option><option value="Gal">Gal</option></select>
-                      </div>
-                  </div>
-                  <div className="flex gap-3 pt-2">
-                      <button onClick={()=>requestDeleteAquarium(editingSettingsId)} className="flex-1 bg-red-900/30 text-red-400 py-3 rounded-xl border border-red-900/50">Удалить</button>
-                      <button onClick={saveSettings} className="flex-1 bg-cyan-600 text-white py-3 rounded-xl font-bold">Сохранить</button>
-                  </div>
-              </div>
-              <button onClick={()=>setEditingSettingsId(null)} className="absolute top-4 right-4 text-slate-500"><X size={20}/></button>
-          </div></div>
+          <div className="fixed inset-0 bg-black/90 z-50 flex items-center justify-center p-6"><div className="bg-slate-900 p-6 rounded-2xl border border-slate-700 w-full max-w-sm"><h2 className="text-xl font-bold text-white mb-4">Настройки аквариума</h2><div className="space-y-4"><div><label className="text-xs text-slate-500 font-bold uppercase mb-1 block">Название</label><input type="text" value={tempName} onChange={e=>setTempName(e.target.value)} className="w-full bg-slate-950 border border-slate-700 text-white p-3 rounded-lg outline-none"/></div><div><label className="text-xs text-slate-500 font-bold uppercase mb-1 block">Общий объем системы</label><div className="flex gap-2"><input type="number" value={tempVolume} onChange={e=>setTempVolume(e.target.value)} className="w-full bg-slate-950 border border-slate-700 text-white p-3 rounded-lg outline-none"/><select value={tempUnit} onChange={e=>setTempUnit(e.target.value)} className="bg-slate-800 border border-slate-700 text-white rounded-lg px-3 outline-none"><option value="L">L</option><option value="Gal">Gal</option></select></div></div><div className="flex gap-3 pt-2"><button onClick={()=>requestDeleteAquarium(editingSettingsId)} className="flex-1 bg-red-900/30 text-red-400 py-3 rounded-xl border border-red-900/50">Удалить</button><button onClick={saveSettings} className="flex-1 bg-cyan-600 text-white py-3 rounded-xl font-bold">Сохранить</button></div></div><button onClick={()=>setEditingSettingsId(null)} className="absolute top-4 right-4 text-slate-500"><X size={20}/></button></div></div>
       )
   }
 
-  // 5. Подмена воды
   if (waterChangeModal) {
       const aq = aquariums.find(a => a.id === waterChangeModal);
       const currentVol = parseFloat(wcAmount || 0);
@@ -631,28 +744,7 @@ export default function App() {
       const isDangerous = percent > 10;
 
       return (
-          <div className="fixed inset-0 bg-black/90 z-50 flex items-center justify-center p-6"><div className="bg-slate-900 p-6 rounded-2xl border border-slate-700 w-full max-w-sm">
-              <h2 className="text-xl font-bold text-white mb-1">Подмена воды</h2>
-              <p className="text-xs text-slate-400 mb-4">Объем системы: {aq.volume} {aq.volumeUnit}</p>
-              
-              <div className="flex gap-2 mb-2">
-                  <input autoFocus type="number" placeholder="0" value={wcAmount} onChange={e=>setWcAmount(e.target.value)} className="w-full bg-slate-950 border border-slate-700 text-white p-3 rounded-lg outline-none text-xl font-bold"/>
-                  <select value={wcUnit} onChange={e=>setWcUnit(e.target.value)} className="bg-slate-800 border border-slate-700 text-white rounded-lg px-4 outline-none font-bold"><option value="L">L</option><option value="Gal">Gal</option></select>
-              </div>
-              
-              {wcAmount > 0 && (
-                  <div className={`p-3 rounded-lg text-sm mb-4 flex items-start gap-2 ${isDangerous ? 'bg-red-900/30 text-red-200 border border-red-800' : 'bg-green-900/30 text-green-200 border border-green-800'}`}>
-                      {isDangerous ? <AlertTriangle size={16} className="shrink-0 mt-0.5"/> : <CheckCircle size={16} className="shrink-0 mt-0.5"/>}
-                      <div>
-                          <div className="font-bold">Подмена: {percent.toFixed(1)}%</div>
-                          <div className="opacity-80 leading-tight mt-1">{isDangerous ? 'Осторожно! Подмена более 10% может дестабилизировать систему.' : 'Безопасный объем подмены.'}</div>
-                      </div>
-                  </div>
-              )}
-
-              <button onClick={performWaterChange} className="w-full bg-cyan-600 text-white font-bold py-3 rounded-xl">Записать подмену</button>
-              <button onClick={()=>setWaterChangeModal(null)} className="w-full text-slate-500 py-3 mt-2">Отмена</button>
-          </div></div>
+          <div className="fixed inset-0 bg-black/90 z-50 flex items-center justify-center p-6"><div className="bg-slate-900 p-6 rounded-2xl border border-slate-700 w-full max-w-sm"><h2 className="text-xl font-bold text-white mb-1">Подмена воды</h2><p className="text-xs text-slate-400 mb-4">Объем системы: {aq.volume} {aq.volumeUnit}</p><div className="flex gap-2 mb-2"><input autoFocus type="number" placeholder="0" value={wcAmount} onChange={e=>setWcAmount(e.target.value)} className="w-full bg-slate-950 border border-slate-700 text-white p-3 rounded-lg outline-none text-xl font-bold"/><select value={wcUnit} onChange={e=>setWcUnit(e.target.value)} className="bg-slate-800 border border-slate-700 text-white rounded-lg px-4 outline-none font-bold"><option value="L">L</option><option value="Gal">Gal</option></select></div>{wcAmount > 0 && (<div className={`p-3 rounded-lg text-sm mb-4 flex items-start gap-2 ${isDangerous ? 'bg-red-900/30 text-red-200 border border-red-800' : 'bg-green-900/30 text-green-200 border border-green-800'}`}>{isDangerous ? <AlertTriangle size={16} className="shrink-0 mt-0.5"/> : <CheckCircle size={16} className="shrink-0 mt-0.5"/>}<div><div className="font-bold">Подмена: {percent.toFixed(1)}%</div><div className="opacity-80 leading-tight mt-1">{isDangerous ? 'Осторожно! Подмена более 10% может дестабилизировать систему.' : 'Безопасный объем подмены.'}</div></div></div>)}<button onClick={performWaterChange} className="w-full bg-cyan-600 text-white font-bold py-3 rounded-xl">Записать подмену</button><button onClick={()=>setWaterChangeModal(null)} className="w-full text-slate-500 py-3 mt-2">Отмена</button></div></div>
       )
   }
 
@@ -664,13 +756,15 @@ export default function App() {
         {activeTab === 'dashboard' && <DashboardView />}
         {activeTab === 'parameters' && <ParametersView />}
         {activeTab === 'livestock' && <LivestockView />}
+        {activeTab === 'doctor' && <DoctorView />}
         {activeTab === 'profile' && <ProfileView />}
       </main>
       <nav className="fixed bottom-0 left-0 w-full bg-slate-900/95 backdrop-blur-md border-t border-slate-800 pb-safe z-50">
         <div className="max-w-md mx-auto flex justify-around px-2">
           <Nav icon={Activity} label="Системы" id="dashboard"/>
-          <Nav icon={Droplets} label="ICP/Тесты" id="parameters"/>
+          <Nav icon={Droplets} label="ICP" id="parameters"/>
           <Nav icon={Fish} label="Жители" id="livestock"/>
+          <Nav icon={Stethoscope} label="Доктор" id="doctor"/>
           <Nav icon={User} label="Профиль" id="profile"/>
         </div>
       </nav>
