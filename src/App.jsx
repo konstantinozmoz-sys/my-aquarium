@@ -41,7 +41,7 @@ const firebaseConfig = {
 };
 
 // --- Google Gemini API Key ---
-const GOOGLE_API_KEY = "AIzaSyBH2CWzRv4vmJsnX1_j15MbKAE4lDgABn8"; 
+const GOOGLE_API_KEY = "AIzaSyClDJSI3P1vzUNlXtoni0hcLm6mrh5l2Rk"; 
 
 // Универсальная функция вызова Gemini API с автоматическим подбором модели
 const callGeminiVision = async (imageData, mimeType, prompt) => {
