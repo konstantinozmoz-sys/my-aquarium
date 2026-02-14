@@ -1,8 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { 
   Droplets, Activity, Fish, Plus, Save, AlertTriangle, 
   CheckCircle, Trash2, User, LogOut, Crown, Mail, MapPin, Lock,
-  Edit2, X, ChevronDown
+  Edit2, X, ChevronDown, Calendar, RefreshCw, Settings
 } from 'lucide-react';
 
 // --- Подключение Firebase ---
@@ -85,10 +85,20 @@ export default function App() {
   const [missingCityModal, setMissingCityModal] = useState(false);
 
   // Состояния для управления аквариумами
-  const [aquariums, setAquariums] = useState([]); // Массив аквариумов
-  const [selectedAqId, setSelectedAqId] = useState(null); // ID выбранного аквариума (для Тестов/Кораллов)
-  const [editingNameId, setEditingNameId] = useState(null); // ID аквариума, имя которого редактируем
+  const [aquariums, setAquariums] = useState([]); 
+  const [selectedAqId, setSelectedAqId] = useState(null); 
+  const [editingNameId, setEditingNameId] = useState(null); 
   const [tempName, setTempName] = useState('');
+  
+  // Новое: Редактирование объема
+  const [editingSettingsId, setEditingSettingsId] = useState(null);
+  const [tempVolume, setTempVolume] = useState('');
+  const [tempUnit, setTempUnit] = useState('L');
+
+  // Новое: Модалка подмены воды
+  const [waterChangeModal, setWaterChangeModal] = useState(null); // ID аквариума или null
+  const [wcAmount, setWcAmount] = useState('');
+  const [wcUnit, setWcUnit] = useState('L'); // L или Gal
 
   // Состояния для кораллов
   const [livestock, setLivestock] = useState([]);
@@ -105,27 +115,33 @@ export default function App() {
           if (docSnap.exists()) {
             const data = docSnap.data();
             
-            // --- МИГРАЦИЯ ДАННЫХ (для старых пользователей) ---
-            if (!data.aquariums) {
+            // МИГРАЦИЯ: Если есть аквариумы без объема, добавляем дефолтный
+            if (data.aquariums) {
+               const fixedAquariums = data.aquariums.map(aq => ({
+                   ...aq,
+                   volume: aq.volume || 100,
+                   volumeUnit: aq.volumeUnit || 'L',
+                   lastWaterChange: aq.lastWaterChange || null,
+                   stabilityStatus: aq.stabilityStatus || 'unknown'
+               }));
+               setAquariums(fixedAquariums);
+               if (!selectedAqId && fixedAquariums.length > 0) setSelectedAqId(fixedAquariums[0].id);
+            } else if (data.currentParams) {
+               // Совсем старая структура
                const defaultAq = {
                  id: 'default_1',
                  name: 'Мой Риф',
-                 params: data.currentParams || DEFAULT_PARAMS
+                 params: data.currentParams,
+                 volume: 100,
+                 volumeUnit: 'L'
                };
                updateDoc(userRef, { aquariums: [defaultAq] });
                setAquariums([defaultAq]);
                setSelectedAqId('default_1');
-            } else {
-               setAquariums(data.aquariums);
-               // Если ничего не выбрано, выбираем первый доступный
-               if (!selectedAqId && data.aquariums.length > 0) {
-                 setSelectedAqId(data.aquariums[0].id);
-               }
             }
 
             setUserData(data);
             if (data.livestock) setLivestock(data.livestock);
-            
             if (!data.personalInfo?.city) setMissingCityModal(true);
             else setMissingCityModal(false);
 
@@ -141,10 +157,11 @@ export default function App() {
       }
     });
     return () => unsubscribe();
-  }, [selectedAqId]); // selectedAqId в зависимостях, чтобы не сбрасывался при обновлении
+  }, [selectedAqId]);
 
   const createGoogleProfile = async (userAuth) => {
-    const trialDate = new Date(); trialDate.setDate(trialDate.getDate() + 30);
+    const trialDate = new Date(); 
+    trialDate.setDate(trialDate.getDate() + 30);
     const newUser = {
       email: userAuth.email,
       uid: userAuth.uid,
@@ -154,149 +171,149 @@ export default function App() {
       aquariums: [{
         id: Date.now().toString(),
         name: 'Основной Риф',
-        params: DEFAULT_PARAMS
+        params: DEFAULT_PARAMS,
+        volume: 100,
+        volumeUnit: 'L',
+        lastWaterChange: new Date().toISOString()
       }],
       livestock: []
     };
     await setDoc(doc(db, "users", userAuth.uid), newUser);
   };
 
-  // --- Auth Handlers ---
+  // --- Auth Handlers (сокращены для экономии места, логика та же) ---
   const handleRegister = async (e) => {
     e.preventDefault();
     if (!city) { alert("Укажите город!"); return; }
     try {
-      const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-      await updateProfile(userCredential.user, { displayName: fullName });
-      await sendEmailVerification(userCredential.user);
-      alert(`Письмо отправлено на ${email}`);
-      
+      const cred = await createUserWithEmailAndPassword(auth, email, password);
+      await updateProfile(cred.user, { displayName: fullName });
+      await sendEmailVerification(cred.user);
       const trialDate = new Date(); trialDate.setDate(trialDate.getDate() + 30);
-      await setDoc(doc(db, "users", userCredential.user.uid), {
-        email: email,
-        uid: userCredential.user.uid,
-        registeredAt: new Date().toISOString(),
+      await setDoc(doc(db, "users", cred.user.uid), {
+        email, uid: cred.user.uid, registeredAt: new Date().toISOString(),
         subscription: { name: 'PRO Trial', expiresAt: trialDate.toISOString() },
         personalInfo: { fullName, city, dob: '' },
-        aquariums: [{ id: Date.now().toString(), name: 'Мой Аквариум', params: DEFAULT_PARAMS }],
+        aquariums: [{ id: Date.now().toString(), name: 'Мой Аквариум', params: DEFAULT_PARAMS, volume: 100, volumeUnit: 'L' }],
         livestock: []
       });
     } catch (error) { alert("Ошибка: " + error.message); }
   };
-
-  const handleEmailLogin = async (e) => {
-    e.preventDefault();
-    try { await signInWithEmailAndPassword(auth, email, password); } 
-    catch (error) { alert("Ошибка: " + error.message); }
-  };
-
-  const handleGoogleLogin = async () => {
-    try { await signInWithPopup(auth, new GoogleAuthProvider()); } 
-    catch (error) { alert("Ошибка: " + error.message); }
-  };
-
-  const saveMissingCity = async () => {
-    if(!city) return;
-    await updateDoc(doc(db, "users", user.uid), { "personalInfo.city": city });
-    setMissingCityModal(false);
-  };
+  const handleEmailLogin = async (e) => { e.preventDefault(); try { await signInWithEmailAndPassword(auth, email, password); } catch (e) { alert(e.message); } };
+  const handleGoogleLogin = async () => { try { await signInWithPopup(auth, new GoogleAuthProvider()); } catch (e) { alert(e.message); } };
+  const saveMissingCity = async () => { if(!city) return; await updateDoc(doc(db, "users", user.uid), { "personalInfo.city": city }); setMissingCityModal(false); };
 
   // --- Управление Аквариумами ---
   const addNewAquarium = async () => {
-    if (aquariums.length >= 3) {
-      alert("В тестовой версии можно создать не более 3 аквариумов.");
-      return;
-    }
+    if (aquariums.length >= 3) { alert("Максимум 3 аквариума."); return; }
     const newAq = {
       id: Date.now().toString(),
       name: `Аквариум #${aquariums.length + 1}`,
-      params: DEFAULT_PARAMS
+      params: DEFAULT_PARAMS,
+      volume: 100, // Дефолтный объем
+      volumeUnit: 'L',
+      lastWaterChange: new Date().toISOString()
     };
-    const updatedList = [...aquariums, newAq];
-    await updateDoc(doc(db, "users", user.uid), { aquariums: updatedList });
+    await updateDoc(doc(db, "users", user.uid), { aquariums: [...aquariums, newAq] });
   };
 
   const deleteAquarium = async (id) => {
-    if (!confirm("Удалить этот аквариум и все его данные?")) return;
-    const updatedList = aquariums.filter(aq => aq.id !== id);
-    if (updatedList.length === 0) {
-      alert("Нельзя удалить последний аквариум."); 
-      return;
-    }
-    await updateDoc(doc(db, "users", user.uid), { aquariums: updatedList });
-    if (selectedAqId === id) setSelectedAqId(updatedList[0].id);
+    if (!confirm("Удалить аквариум?")) return;
+    const list = aquariums.filter(aq => aq.id !== id);
+    if (list.length === 0) { alert("Нельзя удалить последний."); return; }
+    await updateDoc(doc(db, "users", user.uid), { aquariums: list });
+    if (selectedAqId === id) setSelectedAqId(list[0].id);
   };
 
-  const startEditingName = (aq) => {
-    setEditingNameId(aq.id);
-    setTempName(aq.name);
+  // Редактирование имени и объема
+  const openSettings = (aq) => {
+      setEditingSettingsId(aq.id);
+      setTempName(aq.name);
+      setTempVolume(aq.volume);
+      setTempUnit(aq.volumeUnit);
   };
 
-  const saveName = async () => {
+  const saveSettings = async () => {
     const updatedList = aquariums.map(aq => 
-      aq.id === editingNameId ? { ...aq, name: tempName } : aq
+      aq.id === editingSettingsId ? { ...aq, name: tempName, volume: tempVolume, volumeUnit: tempUnit } : aq
     );
     await updateDoc(doc(db, "users", user.uid), { aquariums: updatedList });
-    setEditingNameId(null);
+    setEditingSettingsId(null);
   };
 
-  // --- Сохранение параметров ---
   const saveParamsForAquarium = async (aqId, newParams) => {
-    const updatedList = aquariums.map(aq => 
-      aq.id === aqId ? { ...aq, params: newParams } : aq
-    );
+    const updatedList = aquariums.map(aq => aq.id === aqId ? { ...aq, params: newParams } : aq);
     await updateDoc(doc(db, "users", user.uid), { aquariums: updatedList });
     alert("Данные сохранены!");
+  };
+
+  // --- ПОДМЕНА ВОДЫ ---
+  const performWaterChange = async () => {
+      if (!wcAmount || wcAmount <= 0) return;
+      
+      const aq = aquariums.find(a => a.id === waterChangeModal);
+      if (!aq) return;
+
+      // Конвертация в единицы аквариума для расчета %
+      let amountInAqUnits = parseFloat(wcAmount);
+      if (wcUnit !== aq.volumeUnit) {
+          // Простая конвертация
+          if (wcUnit === 'Gal' && aq.volumeUnit === 'L') amountInAqUnits = amountInAqUnits * 3.785;
+          if (wcUnit === 'L' && aq.volumeUnit === 'Gal') amountInAqUnits = amountInAqUnits / 3.785;
+      }
+
+      const percent = (amountInAqUnits / aq.volume) * 100;
+      let status = 'stable';
+      if (percent > 10) status = 'destabilized';
+
+      const updatedList = aquariums.map(a => 
+          a.id === waterChangeModal ? { ...a, lastWaterChange: new Date().toISOString(), stabilityStatus: status } : a
+      );
+
+      await updateDoc(doc(db, "users", user.uid), { aquariums: updatedList });
+      setWaterChangeModal(null);
+      setWcAmount('');
+      
+      if (percent > 10) alert(`Внимание! Вы подменили ${percent.toFixed(1)}%. Это может вызвать стресс у гидробионтов.`);
+      else alert(`Подмена ${percent.toFixed(1)}% записана. Отличная работа!`);
   };
 
   // --- Кораллы ---
   const addCoral = async (name, type) => {
      if (!user || !name) return;
-     // Гарантируем, что ID аквариума установлен
      const targetAqId = selectedAqId || (aquariums.length > 0 ? aquariums[0].id : null);
-     
-     if (!targetAqId) {
-         alert("Сначала выберите или создайте аквариум!");
-         return;
-     }
-
-     const newCoral = { 
-         id: Date.now(), 
-         name, 
-         type, 
-         date: new Date().toISOString(), 
-         aqId: targetAqId // Жесткая привязка
-     };
-     await updateDoc(doc(db, "users", user.uid), { livestock: arrayUnion(newCoral) });
+     if (!targetAqId) { alert("Создайте аквариум!"); return; }
+     await updateDoc(doc(db, "users", user.uid), { livestock: arrayUnion({ id: Date.now(), name, type, date: new Date().toISOString(), aqId: targetAqId }) });
   };
-
   const removeCoral = async (id) => {
-     const newLivestock = livestock.filter(l => l.id !== id);
-     await updateDoc(doc(db, "users", user.uid), { livestock: newLivestock });
+     await updateDoc(doc(db, "users", user.uid), { livestock: livestock.filter(l => l.id !== id) });
   };
 
-  // --- УЛУЧШЕННЫЕ РЕКОМЕНДАЦИИ ---
+  // --- Helpers ---
   const getRecommendations = (params) => {
     const recs = [];
     Object.keys(params).forEach(key => {
       if (!IDEAL_PARAMS[key]) return;
       const val = parseFloat(params[key]);
       const { min, max, name, unit } = IDEAL_PARAMS[key];
-      
-      // Формируем текст с диапазоном нормы
-      if (val < min) {
-          recs.push({ 
-              type: 'warning', 
-              msg: `${name} низко: ${val}. Норма: ${min} - ${max} ${unit}` 
-          });
-      } else if (val > max) {
-          recs.push({ 
-              type: 'alert', 
-              msg: `${name} высоко: ${val}. Норма: ${min} - ${max} ${unit}` 
-          });
-      }
+      if (val < min) recs.push({ type: 'warning', msg: `${name} низко: ${val}. Норма: ${min}-${max} ${unit}` });
+      else if (val > max) recs.push({ type: 'alert', msg: `${name} высоко: ${val}. Норма: ${min}-${max} ${unit}` });
     });
     return recs;
+  };
+
+  const getStabilityInfo = (aq) => {
+      if (!aq.lastWaterChange) return { status: 'bad', text: 'Нет данных о подменах', color: 'text-red-400' };
+      
+      const lastDate = new Date(aq.lastWaterChange);
+      const diffDays = Math.floor((new Date() - lastDate) / (1000 * 60 * 60 * 24));
+      
+      if (aq.stabilityStatus === 'destabilized' && diffDays < 2) {
+          return { status: 'warning', text: 'Риск дестабилизации (большая подмена)', color: 'text-yellow-400' };
+      }
+      
+      if (diffDays > 7) return { status: 'bad', text: `Подмена просрочена (${diffDays} дн.)`, color: 'text-red-400' };
+      return { status: 'good', text: 'Система стабильна', color: 'text-green-400' };
   };
 
   // --- ЭКРАНЫ ---
@@ -318,36 +335,27 @@ export default function App() {
 
       {aquariums.map((aq) => {
         const recs = getRecommendations(aq.params);
+        const stability = getStabilityInfo(aq);
+
         return (
           <div key={aq.id} className="space-y-3">
             <div className="bg-gradient-to-br from-cyan-900 to-blue-950 p-6 rounded-2xl shadow-lg border border-cyan-800/50 relative group">
+              
+              {/* Header */}
               <div className="flex justify-between items-start mb-4">
-                {editingNameId === aq.id ? (
-                  <div className="flex gap-2 w-full mr-8">
-                    <input 
-                      autoFocus
-                      className="bg-black/20 text-white font-bold text-xl rounded px-2 py-1 w-full outline-none border border-cyan-500/50"
-                      value={tempName}
-                      onChange={e => setTempName(e.target.value)}
-                    />
-                    <button onClick={saveName} className="text-green-400"><CheckCircle size={24}/></button>
-                  </div>
-                ) : (
-                  <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2">
                     <h2 className="text-2xl font-bold text-white">{aq.name}</h2>
-                    <button onClick={() => startEditingName(aq)} className="opacity-0 group-hover:opacity-100 transition-opacity text-cyan-400">
-                      <Edit2 size={16} />
+                    <button onClick={() => openSettings(aq)} className="text-cyan-400 opacity-80 hover:opacity-100">
+                      <Settings size={18} />
                     </button>
-                  </div>
-                )}
-                {aquariums.length > 1 && (
-                  <button onClick={() => deleteAquarium(aq.id)} className="text-slate-500 hover:text-red-400">
-                    <X size={20} />
-                  </button>
-                )}
+                </div>
+                <div className={`text-xs font-bold px-2 py-1 rounded border ${stability.status === 'good' ? 'bg-green-900/30 border-green-500 text-green-400' : 'bg-red-900/30 border-red-500 text-red-400'}`}>
+                    {stability.text}
+                </div>
               </div>
 
-              <div className="grid grid-cols-3 gap-3">
+              {/* Params Grid */}
+              <div className="grid grid-cols-3 gap-3 mb-4">
                 <div className="bg-white/10 p-2 rounded-xl backdrop-blur-sm text-center">
                   <div className="text-cyan-200 text-[10px] font-bold uppercase">Соленость</div>
                   <div className="text-xl font-mono font-bold text-white">{aq.params.salinity}</div>
@@ -356,33 +364,31 @@ export default function App() {
                   <div className="text-cyan-200 text-[10px] font-bold uppercase">KH</div>
                   <div className="text-xl font-mono font-bold text-white">{aq.params.kh}</div>
                 </div>
-                <div className="bg-white/10 p-2 rounded-xl backdrop-blur-sm text-center">
-                   {recs.length === 0 ? (
-                     <div className="h-full flex items-center justify-center text-green-400"><CheckCircle size={24}/></div>
-                   ) : (
-                     <div className="h-full flex items-center justify-center text-yellow-400 font-bold text-xl">! {recs.length}</div>
-                   )}
+                <div className="bg-white/10 p-2 rounded-xl backdrop-blur-sm text-center flex items-center justify-center">
+                   {recs.length === 0 ? <CheckCircle size={24} className="text-green-400"/> : <span className="text-yellow-400 font-bold text-xl">! {recs.length}</span>}
                 </div>
+              </div>
+
+              {/* Water Change Action */}
+              <div className="flex items-center justify-between bg-black/20 p-3 rounded-xl border border-white/5">
+                  <div className="text-xs text-slate-400">
+                      Объем: {aq.volume} {aq.volumeUnit}<br/>
+                      Последняя подмена: {aq.lastWaterChange ? new Date(aq.lastWaterChange).toLocaleDateString() : 'Нет'}
+                  </div>
+                  <button onClick={() => setWaterChangeModal(aq.id)} className="bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-bold py-2 px-4 rounded-lg flex items-center gap-2">
+                      <RefreshCw size={14}/> Подмена
+                  </button>
               </div>
             </div>
 
-            <div className="px-2">
-              {recs.length === 0 ? (
-                <div className="p-3 bg-slate-900/50 rounded-xl border border-slate-800 text-slate-500 text-xs text-center">
-                  В этом аквариуме всё идеально.
+            {/* Recommendations List */}
+            <div className="px-2 space-y-2">
+              {recs.map((rec, i) => (
+                <div key={i} className={`p-3 rounded-xl text-sm flex gap-2 items-start ${rec.type === 'alert' ? 'bg-red-900/20 border border-red-900/50 text-red-200' : 'bg-yellow-900/20 border border-yellow-900/50 text-yellow-200'}`}>
+                  <AlertTriangle size={16} className="shrink-0 mt-0.5"/>
+                  <span>{rec.msg}</span>
                 </div>
-              ) : (
-                <div className="space-y-2">
-                  {recs.map((rec, i) => (
-                    <div key={i} className={`p-3 rounded-xl text-sm flex gap-2 items-start ${
-                      rec.type === 'alert' ? 'bg-red-900/20 border border-red-900/50 text-red-200' : 'bg-yellow-900/20 border border-yellow-900/50 text-yellow-200'
-                    }`}>
-                      <AlertTriangle size={16} className="shrink-0 mt-0.5"/>
-                      <span>{rec.msg}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
+              ))}
             </div>
           </div>
         );
@@ -390,68 +396,43 @@ export default function App() {
     </div>
   );
 
-  // 2. PARAMETERS
+  // 2. PARAMETERS VIEW
   const ParametersView = () => {
     const activeAq = aquariums.find(a => a.id === selectedAqId) || aquariums[0];
     const [localParams, setLocalParams] = useState(activeAq ? activeAq.params : DEFAULT_PARAMS);
-
-    useEffect(() => {
-      if(activeAq) setLocalParams(activeAq.params);
-    }, [activeAq]);
-
-    const handleSave = () => {
-      if(activeAq) saveParamsForAquarium(activeAq.id, localParams);
-    };
+    useEffect(() => { if(activeAq) setLocalParams(activeAq.params); }, [activeAq]);
+    const handleSave = () => { if(activeAq) saveParamsForAquarium(activeAq.id, localParams); };
 
     if (!activeAq) return <div className="text-center mt-10">Создайте аквариум</div>;
 
     return (
       <div className="pb-24 animate-fadeIn">
-        <h2 className="text-2xl font-bold text-white mb-4">Ввод данных ICP/Тестов</h2>
-        
+        <h2 className="text-2xl font-bold text-white mb-4">Ввод данных</h2>
         <div className="mb-6 bg-slate-800 p-2 rounded-xl flex items-center relative">
           <div className="absolute left-4 text-slate-400 pointer-events-none"><Fish size={20}/></div>
-          <select 
-            className="w-full bg-transparent text-white font-bold p-3 pl-10 outline-none appearance-none"
-            value={selectedAqId || ''}
-            onChange={(e) => setSelectedAqId(e.target.value)}
-          >
+          <select className="w-full bg-transparent text-white font-bold p-3 pl-10 outline-none appearance-none" value={selectedAqId || ''} onChange={(e) => setSelectedAqId(e.target.value)}>
             {aquariums.map(aq => <option key={aq.id} value={aq.id} className="bg-slate-900">{aq.name}</option>)}
           </select>
           <div className="absolute right-4 text-slate-400 pointer-events-none"><ChevronDown size={20}/></div>
         </div>
-
         <div className="space-y-3">
           {Object.entries(IDEAL_PARAMS).map(([key, c]) => (
             <div key={key} className="bg-slate-800 p-3 rounded-xl border border-slate-700 flex justify-between items-center">
-              <div>
-                <div className="text-slate-300 font-medium">{c.name}</div>
-                <div className="text-[10px] text-slate-500">Норма: {c.min}-{c.max} {c.unit}</div>
-              </div>
-              <div className="relative w-24">
-                <input 
-                  type="number" step="0.1" 
-                  value={localParams[key]} 
-                  onChange={e=>setLocalParams({...localParams, [key]: e.target.value})} 
-                  className="w-full bg-slate-900 text-white p-2 rounded text-center border border-slate-600 outline-none focus:border-cyan-500" 
-                />
-              </div>
+              <div><div className="text-slate-300 font-medium">{c.name}</div><div className="text-[10px] text-slate-500">Норма: {c.min}-{c.max} {c.unit}</div></div>
+              <div className="relative w-24"><input type="number" step="0.1" value={localParams[key]} onChange={e=>setLocalParams({...localParams, [key]: e.target.value})} className="w-full bg-slate-900 text-white p-2 rounded text-center border border-slate-600 outline-none focus:border-cyan-500" /></div>
             </div>
           ))}
-          <button onClick={handleSave} className="w-full bg-cyan-600 text-white p-4 rounded-xl font-bold flex justify-center gap-2 mt-4"><Save size={20}/> Сохранить результаты</button>
+          <button onClick={handleSave} className="w-full bg-cyan-600 text-white p-4 rounded-xl font-bold flex justify-center gap-2 mt-4"><Save size={20}/> Сохранить</button>
         </div>
       </div>
     );
   };
 
-  // 3. LIVESTOCK
+  // 3. LIVESTOCK VIEW
   const LivestockView = () => {
     const [isAdding, setIsAdding] = useState(false);
     const [name, setName] = useState('');
     const [type, setType] = useState('sps');
-    
-    // Фильтр: показываем кораллы ТОЛЬКО текущего аквариума.
-    // Если aqId нет, считаем, что это коралл первого аквариума (для совместимости).
     const filteredLivestock = livestock.filter(l => {
       const itemAqId = l.aqId || (aquariums.length > 0 ? aquariums[0].id : null);
       return itemAqId === selectedAqId;
@@ -460,45 +441,28 @@ export default function App() {
     return (
       <div className="pb-24 animate-fadeIn">
          <h2 className="text-2xl font-bold text-white mb-4">Жители</h2>
-         
          <div className="mb-6 bg-slate-800 p-2 rounded-xl flex items-center relative">
           <div className="absolute left-4 text-slate-400 pointer-events-none"><Fish size={20}/></div>
-          <select 
-            className="w-full bg-transparent text-white font-bold p-3 pl-10 outline-none appearance-none"
-            value={selectedAqId || ''}
-            onChange={(e) => setSelectedAqId(e.target.value)}
-          >
+          <select className="w-full bg-transparent text-white font-bold p-3 pl-10 outline-none appearance-none" value={selectedAqId || ''} onChange={(e) => setSelectedAqId(e.target.value)}>
             {aquariums.map(aq => <option key={aq.id} value={aq.id} className="bg-slate-900">{aq.name}</option>)}
           </select>
           <div className="absolute right-4 text-slate-400 pointer-events-none"><ChevronDown size={20}/></div>
         </div>
-
-        <div className="flex justify-between items-center mb-4">
-          <span className="text-slate-400 text-sm">Всего: {filteredLivestock.length}</span>
-          <button onClick={() => setIsAdding(!isAdding)} className="bg-cyan-600 p-2 rounded-lg text-white"><Plus size={24}/></button>
-        </div>
-        
+        <div className="flex justify-between items-center mb-4"><span className="text-slate-400 text-sm">Всего: {filteredLivestock.length}</span><button onClick={() => setIsAdding(!isAdding)} className="bg-cyan-600 p-2 rounded-lg text-white"><Plus size={24}/></button></div>
         {isAdding && (
            <div className="bg-slate-800 p-4 rounded-xl border border-slate-700 mb-6">
              <div className="text-cyan-400 text-xs font-bold mb-2 uppercase">Добавление в: {aquariums.find(a=>a.id===selectedAqId)?.name}</div>
-             <input type="text" placeholder="Название (напр. Acropora)" className="w-full bg-slate-900 border border-slate-700 text-white p-3 rounded-lg mb-3" value={name} onChange={e=>setName(e.target.value)}/>
+             <input type="text" placeholder="Название" className="w-full bg-slate-900 border border-slate-700 text-white p-3 rounded-lg mb-3" value={name} onChange={e=>setName(e.target.value)}/>
              <div className="grid grid-cols-3 gap-2 mb-4">
-               {Object.keys(CORAL_TYPES).map(t => (
-                 <button key={t} onClick={()=>setType(t)} className={`p-2 text-xs rounded border ${type===t ? 'bg-cyan-900 border-cyan-500 text-cyan-300' : 'bg-slate-900 border-slate-700 text-slate-400'}`}>{CORAL_TYPES[t].label}</button>
-               ))}
+               {Object.keys(CORAL_TYPES).map(t => (<button key={t} onClick={()=>setType(t)} className={`p-2 text-xs rounded border ${type===t ? 'bg-cyan-900 border-cyan-500 text-cyan-300' : 'bg-slate-900 border-slate-700 text-slate-400'}`}>{CORAL_TYPES[t].label}</button>))}
              </div>
              <button onClick={() => { addCoral(name, type); setIsAdding(false); setName(''); }} className="w-full bg-cyan-600 text-white p-3 rounded-lg font-bold">Сохранить</button>
            </div>
         )}
-
         <div className="space-y-3">
-          {filteredLivestock.length === 0 && <div className="text-center text-slate-500 py-10">В этом аквариуме пусто.</div>}
           {filteredLivestock.map(coral => (
             <div key={coral.id} className="bg-slate-800 p-4 rounded-xl border border-slate-700 flex justify-between items-center">
-              <div>
-                <div className="font-bold text-slate-200">{coral.name}</div>
-                <div className="text-xs text-slate-400">{CORAL_TYPES[coral.type]?.label} • {coral.date?.split('T')[0]}</div>
-              </div>
+              <div><div className="font-bold text-slate-200">{coral.name}</div><div className="text-xs text-slate-400">{CORAL_TYPES[coral.type]?.label} • {coral.date?.split('T')[0]}</div></div>
               <button onClick={() => removeCoral(coral.id)} className="text-slate-600 hover:text-red-400"><Trash2 size={18}/></button>
             </div>
           ))}
@@ -508,33 +472,46 @@ export default function App() {
   };
 
   // 4. PROFILE
-  const ProfileView = () => (
-    <div className="pb-24 animate-fadeIn space-y-4">
-      <div className="bg-slate-800 p-6 rounded-2xl border border-slate-700 flex items-center gap-4">
-        <div className="w-16 h-16 rounded-full bg-cyan-900 flex items-center justify-center text-cyan-400 font-bold text-xl">
-            {userData?.personalInfo?.fullName?.[0] || user.email[0].toUpperCase()}
-        </div>
-        <div>
-          <h2 className="text-xl font-bold text-white">{userData?.personalInfo?.fullName || 'Пользователь'}</h2>
-          <p className="text-sm text-slate-400 flex items-center gap-1"><MapPin size={12}/> {userData?.personalInfo?.city || 'Не указан'}</p>
-        </div>
-      </div>
-      
-      <div className="bg-amber-900/20 p-4 rounded-xl border border-amber-900/50 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-              <Crown className="text-amber-500" size={20}/>
-              <div>
-                  <div className="text-amber-200 font-bold text-sm">Подписка {userData?.subscription?.name}</div>
-                  <div className="text-amber-500/60 text-xs">Активна до {userData?.subscription?.expiresAt?.split('T')[0]}</div>
-              </div>
-          </div>
-      </div>
+  const ProfileView = () => {
+    const [editMode, setEditMode] = useState(false);
+    const [profileData, setProfileData] = useState({ fullName: userData?.personalInfo?.fullName || '', city: userData?.personalInfo?.city || '', dob: userData?.personalInfo?.dob || '' });
+    const daysLeft = useMemo(() => {
+        if (!userData?.subscription?.expiresAt) return 0;
+        return Math.max(0, Math.ceil((new Date(userData.subscription.expiresAt) - new Date()) / (1000 * 60 * 60 * 24)));
+    }, [userData]);
 
-      <button onClick={() => signOut(auth)} className="w-full py-3 text-red-400 border border-slate-800 rounded-xl mt-4 flex items-center justify-center gap-2">
-        <LogOut size={18} /> Выйти
-      </button>
-    </div>
-  );
+    const handleSaveProfile = async () => {
+        if (!user) return;
+        await updateDoc(doc(db, "users", user.uid), { "personalInfo.fullName": profileData.fullName, "personalInfo.city": profileData.city, "personalInfo.dob": profileData.dob });
+        setEditMode(false);
+        alert("Профиль обновлен!");
+    };
+
+    return (
+      <div className="pb-24 animate-fadeIn space-y-6">
+        <div className="bg-slate-800 p-6 rounded-2xl border border-slate-700 flex items-center gap-4">
+          <div className="w-16 h-16 rounded-full bg-cyan-900 flex items-center justify-center text-cyan-400 font-bold text-xl shrink-0">{userData?.personalInfo?.fullName?.[0] || user.email[0].toUpperCase()}</div>
+          <div><h2 className="text-xl font-bold text-white">{userData?.personalInfo?.fullName || 'Пользователь'}</h2><p className="text-sm text-slate-400">{user.email}</p></div>
+        </div>
+        <div className="bg-gradient-to-r from-amber-900/20 to-orange-900/20 p-4 rounded-xl border border-amber-900/50 relative overflow-hidden">
+            <div className="flex items-center justify-between relative z-10">
+                <div className="flex items-center gap-3"><div className="bg-amber-500/10 p-2 rounded-lg"><Crown className="text-amber-500" size={24}/></div><div><div className="text-amber-200 font-bold text-sm">Подписка {userData?.subscription?.name}</div><div className="text-amber-500/60 text-xs">{daysLeft > 0 ? `Осталось дней: ${daysLeft}` : 'Срок действия истек'}</div></div></div>
+                <div className="text-2xl font-bold text-amber-500">{daysLeft}</div>
+            </div>
+            <div className="w-full bg-amber-900/30 h-1.5 rounded-full mt-3"><div className="bg-amber-500 h-full rounded-full transition-all duration-1000" style={{width: `${Math.min(100, (daysLeft / 30) * 100)}%`}}></div></div>
+        </div>
+        <div className="bg-slate-800 p-6 rounded-2xl border border-slate-700">
+            <div className="flex justify-between items-center mb-4"><h3 className="text-lg font-bold text-white flex items-center gap-2"><User size={18}/> Личные данные</h3><button onClick={() => { if (editMode) handleSaveProfile(); else setEditMode(true); }} className={`text-sm font-medium px-3 py-1 rounded-lg transition-colors ${editMode ? 'bg-cyan-600 text-white' : 'text-cyan-400 hover:bg-slate-700'}`}>{editMode ? 'Сохранить' : 'Изменить'}</button></div>
+            <div className="space-y-4">
+                <div><label className="text-xs text-slate-500 uppercase font-bold block mb-1">Имя</label><input type="text" disabled={!editMode} value={profileData.fullName} onChange={(e) => setProfileData({...profileData, fullName: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-lg p-3 text-white disabled:opacity-50 disabled:border-transparent transition-all focus:border-cyan-500 outline-none"/></div>
+                <div><label className="text-xs text-slate-500 uppercase font-bold block mb-1">Город</label><div className="relative"><MapPin size={16} className="absolute left-3 top-3.5 text-slate-500"/><input type="text" disabled={!editMode} value={profileData.city} onChange={(e) => setProfileData({...profileData, city: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-lg p-3 pl-10 text-white disabled:opacity-50 disabled:border-transparent transition-all focus:border-cyan-500 outline-none"/></div></div>
+                <div><label className="text-xs text-slate-500 uppercase font-bold block mb-1">Дата рождения</label><input type="date" disabled={!editMode} value={profileData.dob} onChange={(e) => setProfileData({...profileData, dob: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-lg p-3 text-white disabled:opacity-50 disabled:border-transparent transition-all focus:border-cyan-500 outline-none"/></div>
+            </div>
+        </div>
+        <button onClick={() => signOut(auth)} className="w-full py-4 text-red-400 border border-slate-800 rounded-xl flex items-center justify-center gap-2 hover:bg-red-900/10 transition-colors"><LogOut size={20} /> Выйти из аккаунта</button>
+      </div>
+    );
+  };
 
   // --- LOGIN/REGISTER FORMS ---
   if (!user) {
@@ -544,44 +521,84 @@ export default function App() {
         <div className="w-20 h-20 bg-cyan-500/10 rounded-full flex items-center justify-center mb-4"><Fish size={40} className="text-cyan-400" /></div>
         <h1 className="text-3xl font-bold text-white mb-6">MarineKeeper</h1>
         <div className="w-full max-w-sm bg-slate-900 p-6 rounded-2xl border border-slate-800">
-            <div className="flex bg-slate-950 p-1 rounded-lg mb-6">
-                <button onClick={()=>setAuthMode('login')} className={`flex-1 py-2 text-sm rounded-md font-medium transition-all ${authMode==='login' ? 'bg-slate-800 text-white shadow' : 'text-slate-500'}`}>Вход</button>
-                <button onClick={()=>setAuthMode('register')} className={`flex-1 py-2 text-sm rounded-md font-medium transition-all ${authMode==='register' ? 'bg-slate-800 text-white shadow' : 'text-slate-500'}`}>Регистрация</button>
-            </div>
+            <div className="flex bg-slate-950 p-1 rounded-lg mb-6"><button onClick={()=>setAuthMode('login')} className={`flex-1 py-2 text-sm rounded-md font-medium transition-all ${authMode==='login' ? 'bg-slate-800 text-white shadow' : 'text-slate-500'}`}>Вход</button><button onClick={()=>setAuthMode('register')} className={`flex-1 py-2 text-sm rounded-md font-medium transition-all ${authMode==='register' ? 'bg-slate-800 text-white shadow' : 'text-slate-500'}`}>Регистрация</button></div>
             <form onSubmit={authMode === 'login' ? handleEmailLogin : handleRegister} className="space-y-4">
-                {authMode === 'register' && (
-                    <>
-                    <input type="text" placeholder="Ваше Имя" required value={fullName} onChange={e=>setFullName(e.target.value)} className="w-full bg-slate-950 border border-slate-800 text-white p-3 rounded-xl outline-none focus:border-cyan-500" />
-                    <div className="relative">
-                        <MapPin size={18} className="absolute left-3 top-3.5 text-slate-500" />
-                        <input type="text" placeholder="Город (Обязательно)" required value={city} onChange={e=>setCity(e.target.value)} className="w-full bg-slate-950 border border-slate-800 text-white p-3 pl-10 rounded-xl outline-none focus:border-cyan-500" />
-                    </div>
-                    </>
-                )}
+                {authMode === 'register' && (<><input type="text" placeholder="Ваше Имя" required value={fullName} onChange={e=>setFullName(e.target.value)} className="w-full bg-slate-950 border border-slate-800 text-white p-3 rounded-xl outline-none focus:border-cyan-500" /><div className="relative"><MapPin size={18} className="absolute left-3 top-3.5 text-slate-500" /><input type="text" placeholder="Город (Обязательно)" required value={city} onChange={e=>setCity(e.target.value)} className="w-full bg-slate-950 border border-slate-800 text-white p-3 pl-10 rounded-xl outline-none focus:border-cyan-500" /></div></>)}
                 <div className="relative"><Mail size={18} className="absolute left-3 top-3.5 text-slate-500" /><input type="email" placeholder="Email" required value={email} onChange={e=>setEmail(e.target.value)} className="w-full bg-slate-950 border border-slate-800 text-white p-3 pl-10 rounded-xl outline-none focus:border-cyan-500" /></div>
                 <div className="relative"><Lock size={18} className="absolute left-3 top-3.5 text-slate-500" /><input type="password" placeholder="Пароль" required value={password} onChange={e=>setPassword(e.target.value)} className="w-full bg-slate-950 border border-slate-800 text-white p-3 pl-10 rounded-xl outline-none focus:border-cyan-500" /></div>
                 <button type="submit" className="w-full bg-cyan-600 hover:bg-cyan-500 text-white font-bold py-3 rounded-xl transition-all">{authMode === 'login' ? 'Войти' : 'Зарегистрироваться'}</button>
             </form>
-            <div className="mt-6">
-                <div className="relative flex py-2 items-center"><div className="flex-grow border-t border-slate-800"></div><span className="flex-shrink-0 mx-4 text-slate-600 text-xs">ИЛИ ЧЕРЕЗ GOOGLE</span><div className="flex-grow border-t border-slate-800"></div></div>
-                <button onClick={handleGoogleLogin} className="w-full bg-white text-slate-900 font-bold py-3 rounded-xl flex items-center justify-center gap-2 mt-2 hover:bg-slate-100"><img src="https://www.svgrepo.com/show/475656/google-color.svg" className="w-5 h-5" alt="G" />Google</button>
-            </div>
+            <div className="mt-6"><div className="relative flex py-2 items-center"><div className="flex-grow border-t border-slate-800"></div><span className="flex-shrink-0 mx-4 text-slate-600 text-xs">ИЛИ ЧЕРЕЗ GOOGLE</span><div className="flex-grow border-t border-slate-800"></div></div><button onClick={handleGoogleLogin} className="w-full bg-white text-slate-900 font-bold py-3 rounded-xl flex items-center justify-center gap-2 mt-2 hover:bg-slate-100"><img src="https://www.svgrepo.com/show/475656/google-color.svg" className="w-5 h-5" alt="G" />Google</button></div>
         </div>
       </div>
     );
   }
 
-  // Модалка Города
+  // --- МОДАЛКИ ---
   if (missingCityModal) {
       return (
-          <div className="fixed inset-0 bg-black/90 z-50 flex items-center justify-center p-6">
-              <div className="bg-slate-900 p-6 rounded-2xl border border-slate-700 w-full max-w-sm">
-                  <h2 className="text-xl font-bold text-white mb-2">Заполните профиль</h2>
-                  <p className="text-slate-400 text-sm mb-4">Укажите ваш город.</p>
-                  <input type="text" placeholder="Город" value={city} onChange={e=>setCity(e.target.value)} className="w-full bg-slate-950 border border-slate-700 text-white p-3 rounded-xl mb-4" />
-                  <button onClick={saveMissingCity} className="w-full bg-cyan-600 text-white font-bold py-3 rounded-xl">Сохранить</button>
+          <div className="fixed inset-0 bg-black/90 z-50 flex items-center justify-center p-6"><div className="bg-slate-900 p-6 rounded-2xl border border-slate-700 w-full max-w-sm"><h2 className="text-xl font-bold text-white mb-2">Заполните профиль</h2><p className="text-slate-400 text-sm mb-4">Укажите ваш город.</p><input type="text" placeholder="Город" value={city} onChange={e=>setCity(e.target.value)} className="w-full bg-slate-950 border border-slate-700 text-white p-3 rounded-xl mb-4" /><button onClick={saveMissingCity} className="w-full bg-cyan-600 text-white font-bold py-3 rounded-xl">Сохранить</button></div></div>
+      )
+  }
+
+  if (editingSettingsId) {
+      return (
+          <div className="fixed inset-0 bg-black/90 z-50 flex items-center justify-center p-6"><div className="bg-slate-900 p-6 rounded-2xl border border-slate-700 w-full max-w-sm">
+              <h2 className="text-xl font-bold text-white mb-4">Настройки аквариума</h2>
+              <div className="space-y-4">
+                  <div><label className="text-xs text-slate-500 font-bold uppercase mb-1 block">Название</label><input type="text" value={tempName} onChange={e=>setTempName(e.target.value)} className="w-full bg-slate-950 border border-slate-700 text-white p-3 rounded-lg outline-none"/></div>
+                  <div><label className="text-xs text-slate-500 font-bold uppercase mb-1 block">Общий объем системы</label>
+                      <div className="flex gap-2">
+                          <input type="number" value={tempVolume} onChange={e=>setTempVolume(e.target.value)} className="w-full bg-slate-950 border border-slate-700 text-white p-3 rounded-lg outline-none"/>
+                          <select value={tempUnit} onChange={e=>setTempUnit(e.target.value)} className="bg-slate-800 border border-slate-700 text-white rounded-lg px-3 outline-none"><option value="L">L</option><option value="Gal">Gal</option></select>
+                      </div>
+                  </div>
+                  <div className="flex gap-3 pt-2">
+                      <button onClick={()=>deleteAquarium(editingSettingsId)} className="flex-1 bg-red-900/30 text-red-400 py-3 rounded-xl border border-red-900/50">Удалить</button>
+                      <button onClick={saveSettings} className="flex-1 bg-cyan-600 text-white py-3 rounded-xl font-bold">Сохранить</button>
+                  </div>
               </div>
-          </div>
+              <button onClick={()=>setEditingSettingsId(null)} className="absolute top-4 right-4 text-slate-500"><X size={20}/></button>
+          </div></div>
+      )
+  }
+
+  if (waterChangeModal) {
+      const aq = aquariums.find(a => a.id === waterChangeModal);
+      const currentVol = parseFloat(wcAmount || 0);
+      const aqVol = parseFloat(aq?.volume || 100);
+      // Приводим к одной единице для расчета %
+      let calcVol = currentVol;
+      if (wcUnit !== aq.volumeUnit) {
+          if (wcUnit === 'Gal' && aq.volumeUnit === 'L') calcVol = currentVol * 3.785;
+          if (wcUnit === 'L' && aq.volumeUnit === 'Gal') calcVol = currentVol / 3.785;
+      }
+      const percent = (calcVol / aqVol) * 100;
+      const isDangerous = percent > 10;
+
+      return (
+          <div className="fixed inset-0 bg-black/90 z-50 flex items-center justify-center p-6"><div className="bg-slate-900 p-6 rounded-2xl border border-slate-700 w-full max-w-sm">
+              <h2 className="text-xl font-bold text-white mb-1">Подмена воды</h2>
+              <p className="text-xs text-slate-400 mb-4">Объем системы: {aq.volume} {aq.volumeUnit}</p>
+              
+              <div className="flex gap-2 mb-2">
+                  <input autoFocus type="number" placeholder="0" value={wcAmount} onChange={e=>setWcAmount(e.target.value)} className="w-full bg-slate-950 border border-slate-700 text-white p-3 rounded-lg outline-none text-xl font-bold"/>
+                  <select value={wcUnit} onChange={e=>setWcUnit(e.target.value)} className="bg-slate-800 border border-slate-700 text-white rounded-lg px-4 outline-none font-bold"><option value="L">L</option><option value="Gal">Gal</option></select>
+              </div>
+              
+              {wcAmount > 0 && (
+                  <div className={`p-3 rounded-lg text-sm mb-4 flex items-start gap-2 ${isDangerous ? 'bg-red-900/30 text-red-200 border border-red-800' : 'bg-green-900/30 text-green-200 border border-green-800'}`}>
+                      {isDangerous ? <AlertTriangle size={16} className="shrink-0 mt-0.5"/> : <CheckCircle size={16} className="shrink-0 mt-0.5"/>}
+                      <div>
+                          <div className="font-bold">Подмена: {percent.toFixed(1)}%</div>
+                          <div className="opacity-80 leading-tight mt-1">{isDangerous ? 'Осторожно! Подмена более 10% может дестабилизировать систему.' : 'Безопасный объем подмены.'}</div>
+                      </div>
+                  </div>
+              )}
+
+              <button onClick={performWaterChange} className="w-full bg-cyan-600 text-white font-bold py-3 rounded-xl">Записать подмену</button>
+              <button onClick={()=>setWaterChangeModal(null)} className="w-full text-slate-500 py-3 mt-2">Отмена</button>
+          </div></div>
       )
   }
 
