@@ -430,8 +430,8 @@ export default function App() {
                 r.readAsDataURL(file);
             });
 
-            // Запрос к Gemini (ОБНОВЛЕННАЯ МОДЕЛЬ)
-            const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${GOOGLE_API_KEY}`, {
+            // Запрос к Gemini (ОБНОВЛЕННАЯ ВЕРСИЯ - СТАБИЛЬНАЯ)
+            const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-001:generateContent?key=${GOOGLE_API_KEY}`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
@@ -446,29 +446,31 @@ export default function App() {
 
             const data = await response.json();
             
-            if (data.error) throw new Error(data.error.message);
+            if (data.error) throw new Error(`${data.error.message} (Code: ${data.error.code})`);
 
-            // Парсинг ответа (удаляем возможные markdown кавычки)
+            // Парсинг ответа
             let text = data.candidates?.[0]?.content?.parts?.[0]?.text;
-            text = text.replace(/```json/g, '').replace(/```/g, '').trim();
-            const result = JSON.parse(text);
+            if (text) {
+                text = text.replace(/```json/g, '').replace(/```/g, '').trim();
+                const result = JSON.parse(text);
 
-            // Обновляем состояние (только найденные значения)
-            setLocalParams(prev => ({
-                ...prev,
-                salinity: result.salinity || prev.salinity,
-                kh: result.kh || prev.kh,
-                ca: result.ca || prev.ca,
-                mg: result.mg || prev.mg,
-                no3: result.no3 || prev.no3,
-                po4: result.po4 || prev.po4,
-            }));
-
-            alert("Данные успешно распознаны и заполнены!");
+                setLocalParams(prev => ({
+                    ...prev,
+                    salinity: result.salinity || prev.salinity,
+                    kh: result.kh || prev.kh,
+                    ca: result.ca || prev.ca,
+                    mg: result.mg || prev.mg,
+                    no3: result.no3 || prev.no3,
+                    po4: result.po4 || prev.po4,
+                }));
+                alert("Данные успешно распознаны!");
+            } else {
+                throw new Error("Не удалось получить данные от ИИ");
+            }
 
         } catch (error) {
             console.error(error);
-            alert("Не удалось распознать данные. Попробуйте еще раз или введите вручную.");
+            alert(`Ошибка ИИ: ${error.message}. Проверьте, включен ли Generative Language API в Google Console.`);
         } finally {
             setIsAnalyzing(false);
         }
@@ -543,8 +545,8 @@ export default function App() {
                 r.readAsDataURL(file);
             });
 
-            // Запрос к Gemini (ОБНОВЛЕННАЯ МОДЕЛЬ)
-            const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${GOOGLE_API_KEY}`, {
+            // Запрос к Gemini (ОБНОВЛЕННАЯ ВЕРСИЯ - СТАБИЛЬНАЯ)
+            const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-001:generateContent?key=${GOOGLE_API_KEY}`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
@@ -558,13 +560,14 @@ export default function App() {
             });
 
             const data = await response.json();
-            if (data.error) throw new Error(data.error.message);
+            if (data.error) throw new Error(`${data.error.message} (Code: ${data.error.code})`);
+            
             const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
             setResult(text || "Не удалось распознать проблему.");
 
         } catch (error) {
             console.error(error);
-            setResult("Ошибка анализа: " + error.message);
+            setResult(`Ошибка анализа: ${error.message}. Убедитесь, что API включен в Google Console.`);
         } finally {
             setAnalyzing(false);
         }
