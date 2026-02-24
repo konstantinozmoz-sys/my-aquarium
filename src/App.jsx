@@ -29,11 +29,10 @@ const firebaseConfig = {
 };
 
 /**
- * КОНФИГУРАЦИЯ API (VERCEL)
- * Ключ OpenAI полностью скрыт на стороне сервера Vercel (переменная "gpt").
+ * КОНФИГУРАЦИЯ API (VERCEL).
  * Приложение обращается к серверной функции /api/analyze
  */
-const API_ENDPOINT = "/api/analyze"; 
+const API_ENDPOINT = "/api/openai-proxy";
 
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
