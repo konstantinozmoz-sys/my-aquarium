@@ -1,5 +1,5 @@
 export default {
-  async fetch(request) {
+  async fetch(request, env) {
     // CORS headers
     const corsHeaders = {
       'Access-Control-Allow-Origin': '*',
@@ -19,7 +19,7 @@ export default {
     try {
       const { messages, model, max_tokens } = await request.json();
 
-      // Ключ хранится в Cloudflare Environment Variables (безопасно!)
+      // Ключ из Cloudflare секретов (безопасно!)
       const OPENAI_API_KEY = env.OPENAI_API_KEY;
 
       const response = await fetch('https://api.openai.com/v1/chat/completions', {
@@ -28,7 +28,11 @@ export default {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${OPENAI_API_KEY}`
         },
-        body: JSON.stringify({ messages, model, max_tokens })
+        body: JSON.stringify({ 
+          messages, 
+          model: model || 'gpt-4o', 
+          max_tokens: max_tokens || 800 
+        })
       });
 
       const data = await response.json();
