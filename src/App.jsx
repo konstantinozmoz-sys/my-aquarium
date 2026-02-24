@@ -4,7 +4,7 @@ import {
   Camera, Loader2, Stethoscope, Sparkles, ScanLine, 
   Calculator, ArrowLeft, Beaker, Box, Layers, TrendingDown,
   LogOut, Crown, MapPin, X, CheckCircle, AlertTriangle, Save, Trash2, User, 
-  ChevronDown, Calendar, Globe, Edit2
+  ChevronDown, Calendar, Globe, Info, Edit2
 } from 'lucide-react';
 
 // --- Инициализация Firebase ---
@@ -18,7 +18,6 @@ import {
   getFirestore, doc, setDoc, updateDoc, arrayUnion, onSnapshot 
 } from "firebase/firestore";
 
-// --- КОНФИГУРАЦИЯ FIREBASE ---
 const firebaseConfig = {
   apiKey: "AIzaSyAje8rftBvZuC0cFJSh5He4oHsUVT0xZnU",
   authDomain: "marinekeeper.firebaseapp.com",
@@ -29,34 +28,61 @@ const firebaseConfig = {
   measurementId: "G-RDWEZCWREF"
 };
 
-// OpenAI API Key (GPT-4o)
+// Исправленный доступ к API ключу без использования import.meta
 const OPENAI_API_KEY = "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";
 
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
 
-// --- КОНСТАНТЫ ---
+// --- СПРАВОЧНИКИ И ОПИСАНИЯ ---
 const IDEAL_PARAMS = {
-  salinity: { min: 33, max: 36, unit: 'ppt', name: 'Соленость' },
-  kh: { min: 7.5, max: 11.0, unit: 'dKH', name: 'Щелочность' },
-  ca: { min: 400, max: 480, unit: 'ppm', name: 'Кальций' },
-  mg: { min: 1250, max: 1400, unit: 'ppm', name: 'Магний' },
-  no3: { min: 2, max: 15, unit: 'ppm', name: 'Нитраты' },
-  po4: { min: 0.03, max: 0.1, unit: 'ppm', name: 'Фосфаты' },
-  temp: { min: 24, max: 27, unit: '°C', name: 'Температура' }
+  salinity: { 
+    min: 33, max: 36, unit: 'ppt', name: 'Соленость', 
+    desc: 'Это концентрация соли в воде. Оптимальный уровень — 35 ppt. Низкая соленость мешает росту кораллов, высокая — угнетает рыб.' 
+  },
+  kh: { 
+    min: 7.5, max: 11.0, unit: 'dKH', name: 'Щелочность', 
+    desc: 'Буферная емкость воды. Главный параметр для роста скелетов жестких кораллов и стабильности pH.' 
+  },
+  ca: { 
+    min: 400, max: 480, unit: 'ppm', name: 'Кальций', 
+    desc: 'Строительный материал для рифа. Должен быть в балансе с щелочностью.' 
+  },
+  mg: { 
+    min: 1250, max: 1400, unit: 'ppm', name: 'Магний', 
+    desc: 'Удерживает кальций и карбонаты в растворенном виде. Без него параметры будут "скакать".' 
+  },
+  no3: { 
+    min: 2, max: 15, unit: 'ppm', name: 'Нитраты', 
+    desc: 'Показатель органического загрязнения. В малых дозах — еда для кораллов, в больших — причина роста водорослей.' 
+  },
+  po4: { 
+    min: 0.03, max: 0.1, unit: 'ppm', name: 'Фосфаты', 
+    desc: 'Продукт жизнедеятельности. Избыток блокирует рост кораллов и портит вид аквариума.' 
+  },
+  temp: { 
+    min: 24, max: 27, unit: '°C', name: 'Температура', 
+    desc: 'Риф любит прохладу. Скачки выше 28°C могут привести к гибели всей системы.' 
+  }
+};
+
+const REAGENTS = {
+  kh: [
+    { brand: "Reef Exclusive", potency: 0.03 },
+    { brand: "Red Sea", potency: 0.033 },
+    { brand: "Tropic Marin", potency: 0.028 }
+  ],
+  ca: [
+    { brand: "Reef Exclusive", potency: 0.0036 },
+    { brand: "Red Sea", potency: 0.0038 }
+  ]
 };
 
 const CORAL_TYPES = {
-  sps: { label: 'SPS (Жесткие)', care: 'Сильный свет и течение' },
-  lps: { label: 'LPS (Мясистые)', care: 'Средний свет, подкормка' },
-  soft: { label: 'Мягкие', care: 'Неприхотливые' },
-};
-
-const CALC_DATA = {
-  kh: { 'nahco3': { label: 'Сода NaHCO3', coeff: 0.03 }, 'na2co3': { label: 'Сода Na2CO3', coeff: 0.01884 } },
-  ca: { 'anhydrous': { label: 'CaCl2 Безводный', coeff: 0.00277 }, 'dihydrate': { label: 'CaCl2 Дигидрат', coeff: 0.003665 } },
-  balling: { ca: 71.2, kh: 82.0, salt: 25.0 }
+  sps: { label: 'SPS (Жесткие)', care: 'Свет++, Течение++, Стабильность++' },
+  lps: { label: 'LPS (Мясистые)', care: 'Средний свет, умеренное течение' },
+  soft: { label: 'Мягкие', care: 'Неприхотливые, средний свет' },
 };
 
 const DEFAULT_PARAMS = { salinity: 35, kh: 8.5, ca: 420, mg: 1350, no3: 5, po4: 0.05, temp: 25.5 };
@@ -78,15 +104,16 @@ export default function App() {
 
   // UI
   const [isCreating, setIsCreating] = useState(false);
-  const [newAqData, setNewAqData] = useState({ name: '', volume: '100', unit: 'L' });
+  const [newAqData, setNewAqData] = useState({ name: '', volume: '100' });
   const [waterChangeModal, setWaterChangeModal] = useState(null);
   const [wcAmount, setWcAmount] = useState('');
   const [editingAqId, setEditingAqId] = useState(null);
+  const [infoModal, setInfoModal] = useState(null);
   const [isEditingProfile, setIsEditingProfile] = useState(false);
   const [isAddingCoral, setIsAddingCoral] = useState(false);
   const [newCoral, setNewCoral] = useState({ name: '', type: 'sps' });
 
-  // OpenAI Vision Logic
+  // OpenAI Logic
   const callVision = async (imageData, mimeType, prompt) => {
     try {
       const response = await fetch('https://api.openai.com/v1/chat/completions', {
@@ -95,15 +122,15 @@ export default function App() {
         body: JSON.stringify({
           model: 'gpt-4o',
           messages: [{ role: 'user', content: [{ type: 'text', text: prompt }, { type: 'image_url', image_url: { url: `data:${mimeType};base64,${imageData}` } }] }],
-          max_tokens: 500
+          max_tokens: 600
         })
       });
       const data = await response.json();
-      return data.choices[0].message.content;
-    } catch (e) { alert("Ошибка нейросети."); return null; }
+      return data.choices?.[0]?.message?.content || null;
+    } catch (e) { return null; }
   };
 
-  // Firebase Sync
+  // Sync Firebase
   useEffect(() => {
     return onAuthStateChanged(auth, async (u) => {
       setUser(u);
@@ -116,7 +143,7 @@ export default function App() {
             setLivestock(data.livestock || []);
             if (!selectedAqId && data.aquariums?.length) setSelectedAqId(data.aquariums[0].id);
           } else {
-            initNewUser(u);
+            initProfile(u);
           }
           setLoading(false);
         });
@@ -124,10 +151,11 @@ export default function App() {
     });
   }, [selectedAqId]);
 
-  const initNewUser = async (u) => {
+  const initProfile = async (u) => {
     const exp = new Date(); exp.setDate(exp.getDate() + 30);
     await setDoc(doc(db, "users", u.uid), {
-      email: u.email, personalInfo: { fullName: u.displayName || 'Аквариумист', city: '', country: '', dob: '' },
+      email: u.email, 
+      personalInfo: { fullName: u.displayName || 'Аквариумист', city: 'Нови-Сад', country: 'Сербия', dob: '' },
       subscription: { name: 'PRO Trial', expiresAt: exp.toISOString() },
       aquariums: [{ id: Date.now().toString(), name: 'Мой Риф', params: DEFAULT_PARAMS, volume: 100, volumeUnit: 'L', lastWaterChange: new Date().toISOString(), stabilityStatus: 'stable' }],
       livestock: []
@@ -142,12 +170,11 @@ export default function App() {
         const cred = await createUserWithEmailAndPassword(auth, email, password);
         await updateProfile(cred.user, { displayName: fullName });
       }
-    } catch (err) { alert("Ошибка доступа: " + err.message); }
+    } catch (err) { alert(err.message); }
   };
 
   const handleGoogleLogin = async () => {
-    try { await signInWithPopup(auth, new GoogleAuthProvider()); } 
-    catch (e) { alert("Ошибка Google."); }
+    try { await signInWithPopup(auth, new GoogleAuthProvider()); } catch (e) { }
   };
 
   const handleAqAction = async (type, payload) => {
@@ -166,85 +193,82 @@ export default function App() {
     }
   };
 
+  const handleAddCoral = async () => {
+    if (!newCoral.name) return;
+    const item = { ...newCoral, id: Date.now(), aqId: selectedAqId, date: new Date().toISOString() };
+    const updatedLivestock = [...livestock, item];
+    await updateDoc(doc(db, "users", user.uid), { livestock: updatedLivestock });
+    setNewCoral({ name: '', type: 'sps' });
+    setIsAddingCoral(false);
+  };
+
   const updateProfileData = async (data) => {
     await updateDoc(doc(db, "users", user.uid), { personalInfo: data });
     setIsEditingProfile(false);
   };
 
-  const handleAddCoral = async () => {
-    if (!newCoral.name) return;
-    const item = { ...newCoral, id: Date.now(), aqId: selectedAqId, date: new Date().toISOString() };
-    await updateDoc(doc(db, "users", user.uid), { livestock: arrayUnion(item) });
-    setNewCoral({ name: '', type: 'sps' });
-    setIsAddingCoral(false);
-  };
-
   // --- Views ---
   const NavItem = ({ icon: Icon, id, label }) => (
     <button onClick={() => setActiveTab(id)} className={`nav-btn ${activeTab === id ? 'active' : ''}`}>
-      <Icon size={20} strokeWidth={2} />
+      <Icon size={18} strokeWidth={2.5} />
       <span className="nav-label">{label}</span>
     </button>
   );
 
   const Dashboard = () => {
-    const bioLoad = livestock.filter(l => l.aqId === selectedAqId).length;
+    const coralsInAq = livestock.filter(l => l.aqId === selectedAqId).length;
+    const bioLoad = coralsInAq > 15 ? 'Высокая' : coralsInAq > 5 ? 'Средняя' : 'Низкая';
+
     return (
-      <div className="animate-fadeIn max-w-md mx-auto px-5 pt-8 pb-10 italic font-black">
-        <div className="flex justify-between items-end mb-8">
+      <div className="view-container animate-fadeIn italic font-black">
+        <header className="mb-10 flex justify-between items-end italic">
           <div>
-            <h1 className="text-xl font-bold text-white tracking-tight italic">ТЕРМИНАЛ</h1>
-            <p className="text-[9px] text-cyan-500 uppercase tracking-[0.2em] font-medium flex items-center gap-1 opacity-70">
+            <h1 className="header-title uppercase tracking-tighter">Терминал</h1>
+            <p className="header-subtitle flex items-center gap-1">
               <MapPin size={10}/> {userData?.personalInfo?.city || 'СЕКТОР-АВТОНОМНО'}
             </p>
           </div>
-          <div className="text-[10px] text-slate-600 font-bold uppercase tracking-widest italic leading-none">V 4.2</div>
-        </div>
+          <div className="text-[10px] text-slate-800 opacity-40 font-bold italic">CORE V4.3</div>
+        </header>
 
-        <div className="space-y-5">
+        <div className="space-y-6">
           {aquariums.map(aq => (
-            <div key={aq.id} className="glass-card p-6 relative overflow-hidden group">
-              <Activity className="absolute -right-4 -bottom-4 opacity-[0.02] text-cyan-400 group-hover:scale-110 transition-transform duration-1000" size={160}/>
-              <div className="flex justify-between items-start mb-6 relative z-10">
-                <div className="flex items-center gap-3">
-                  <div className="w-1 h-5 bg-cyan-500 rounded-full"></div>
-                  <h2 className="text-base font-bold text-white uppercase tracking-tight italic">{aq.name}</h2>
-                  <button onClick={() => setEditingAqId(aq.id)} className="text-slate-700 hover:text-cyan-400 transition-colors p-1"><Settings size={16}/></button>
+            <div key={aq.id} className="premium-card">
+              <Activity className="card-bg-icon" size={160}/>
+              <div className="flex justify-between items-start mb-6 relative z-10 leading-none">
+                <div className="flex items-center gap-3 italic">
+                  <div className="accent-bar shadow-cyan-400/50"></div>
+                  <h2 className="text-lg font-black text-white uppercase italic truncate max-w-[150px] leading-none">{aq.name}</h2>
+                  <button onClick={() => setEditingAqId(aq.id)} className="text-slate-800 hover:text-cyan-400 p-1 transition-colors"><Settings size={18}/></button>
                 </div>
-                <div className="text-[8px] font-bold px-2.5 py-1 rounded-full border border-green-500/20 text-green-500 uppercase tracking-widest leading-none">Стабильно</div>
+                <div className="status-badge">СТАБИЛЬНО</div>
               </div>
               
-              <div className="grid grid-cols-2 gap-3 relative z-10 leading-none">
-                <div className="bg-[#020617]/60 p-4 rounded-2xl border border-white/5 shadow-inner">
-                  <p className="text-[8px] text-cyan-400/60 font-bold mb-1 uppercase tracking-widest">Щелочность</p>
-                  <p className="text-xl font-mono font-bold text-white leading-none">{aq.params?.kh || '0'}</p>
+              <div className="grid grid-cols-2 gap-4 relative z-10 leading-none font-black italic">
+                <div className="stat-pill shadow-inner">
+                  <p className="stat-pill-label">Щелочность</p>
+                  <p className="stat-pill-num">{aq.params?.kh || '0'}</p>
                 </div>
-                <div className="bg-[#020617]/60 p-4 rounded-2xl border border-white/5 shadow-inner">
-                  <p className="text-[8px] text-cyan-400/60 font-bold mb-1 uppercase tracking-widest">Соленость</p>
-                  <p className="text-xl font-mono font-bold text-white leading-none">{aq.params?.salinity || '0'}</p>
+                <div className="stat-pill shadow-inner">
+                  <p className="stat-pill-label">Соленость</p>
+                  <p className="stat-pill-num">{aq.params?.salinity || '0'}</p>
                 </div>
               </div>
 
-              <div className="mt-4 flex justify-between items-center px-2">
-                 <span className="text-[8px] text-slate-600 uppercase font-bold tracking-widest">Био-нагрузка: {bioLoad} ед.</span>
-                 <span className="text-[8px] text-slate-800 uppercase font-bold italic">Подмена: {new Date(aq.lastWaterChange).toLocaleDateString()}</span>
+              <div className="mt-6 flex justify-between px-2 italic font-black opacity-30 items-center">
+                 <span className="text-[8px] text-slate-700 uppercase tracking-widest italic">Био-нагрузка: {bioLoad}</span>
+                 <span className="text-[8px] text-slate-800 uppercase italic">Подмена: {new Date(aq.lastWaterChange).toLocaleDateString()}</span>
               </div>
 
-              <button 
-                onClick={() => setWaterChangeModal(aq.id)} 
-                className="w-full mt-6 py-3.5 bg-gradient-to-r from-cyan-600 to-cyan-500 text-white rounded-xl text-[9px] font-bold uppercase tracking-[0.2em] shadow-lg shadow-cyan-900/20 active:scale-95 transition-all relative z-10"
-              >
+              <button onClick={() => setWaterChangeModal(aq.id)} className="action-btn-main mt-8 shadow-xl shadow-cyan-950/40 uppercase">
                 Записать обслуживание
               </button>
             </div>
           ))}
 
-          <button 
-            onClick={() => setIsCreating(true)}
-            className="w-full py-6 border border-dashed border-slate-800 rounded-[2rem] flex flex-col items-center justify-center gap-2 text-slate-600 hover:text-cyan-400 hover:border-cyan-400/30 transition-all active:scale-95 group"
-          >
+          <button onClick={() => setIsCreating(true)} className="w-full py-8 border-2 border-dashed border-slate-900 rounded-[2.5rem] flex flex-col items-center justify-center gap-2 text-slate-700 hover:text-cyan-400 hover:border-cyan-400/30 transition-all active:scale-95 group bg-slate-900/10 shadow-inner">
             <div className="p-2 bg-slate-900 rounded-full group-hover:bg-cyan-900/20 transition-colors leading-none"><Plus size={20}/></div>
-            <span className="text-[9px] font-bold uppercase tracking-widest italic leading-none">Инициировать систему</span>
+            <span className="text-[9px] font-black uppercase tracking-widest italic leading-none">Инициировать систему</span>
           </button>
         </div>
       </div>
@@ -270,30 +294,116 @@ export default function App() {
     };
 
     return (
-      <div className="max-w-md mx-auto px-5 pt-8 pb-12 animate-fadeIn italic font-black">
-        <h2 className="text-xl font-bold text-white uppercase italic mb-8 tracking-tighter">Нейро-Лаборатория</h2>
+      <div className="view-container animate-fadeIn font-black italic leading-none">
+        <h2 className="text-xl font-black text-white uppercase mb-8 leading-none tracking-tight italic">Лаборатория</h2>
         <input type="file" id="lab-scan" className="hidden" onChange={scan} />
-        <label htmlFor="lab-scan" className={`w-full p-8 border border-dashed border-cyan-900/40 bg-cyan-950/5 rounded-3xl flex flex-col items-center gap-4 cursor-pointer hover:bg-cyan-950/10 transition-all ${busy ? 'opacity-50' : ''}`}>
-          {busy ? <Loader2 className="animate-spin text-cyan-400" size={24} /> : <ScanLine size={32} className="text-cyan-400" />}
-          <div className="text-center">
-            <p className="text-white text-[10px] font-bold uppercase tracking-widest">СКАНЕР ИЦП</p>
-            <p className="text-[8px] text-slate-600 uppercase font-bold mt-1 leading-none italic">Авто-синхронизация Vision GPT-4</p>
+        <label htmlFor="lab-scan" className={`upload-box shadow-cyan-950/20 ${busy ? 'busy' : ''}`}>
+          {busy ? <Loader2 className="animate-spin text-cyan-400" size={32} /> : <ScanLine size={32} className="text-cyan-400 shadow-xl" />}
+          <div className="text-center leading-tight mt-2 italic font-black">
+            <p className="text-white text-[10px] font-black uppercase tracking-widest italic">СКАНЕР ИЦП ТЕСТОВ</p>
+            <p className="text-[8px] text-slate-700 uppercase mt-1 italic">Vision GPT-4o заполнит всё сам</p>
           </div>
         </label>
-        <div className="mt-8 space-y-2.5">
+        <div className="mt-8 space-y-3 leading-none italic">
           {Object.entries(IDEAL_PARAMS).map(([k, v]) => (
-            <div key={k} className="glass-card !p-4 flex justify-between items-center leading-none">
-              <div className="leading-tight">
-                <p className="text-slate-100 text-xs font-bold uppercase italic leading-none">{v.name}</p>
-                <p className="text-[8px] text-slate-700 font-bold uppercase mt-1 leading-none">Норма: {v.min}-{v.max}</p>
+            <div key={k} className="premium-card !p-4 flex justify-between items-center shadow-lg bg-slate-900/40 border-none leading-none">
+              <div className="flex items-center gap-3">
+                <button onClick={() => setInfoModal(k)} className="text-slate-800 hover:text-cyan-500 active:scale-110 p-1"><Info size={16}/></button>
+                <div className="leading-tight">
+                    <p className="text-slate-100 text-[11px] font-black uppercase leading-none">{v.name}</p>
+                    <p className="text-[8px] text-slate-700 font-black uppercase mt-1 italic opacity-40 leading-none">Норма: {v.min}-{v.max}</p>
+                </div>
               </div>
-              <input type="number" step="0.1" value={local[k]} onChange={e => setLocal({...local, [k]: e.target.value})} className="w-20 bg-slate-950 border border-white/5 rounded-lg p-2.5 text-center text-white font-mono text-sm outline-none focus:border-cyan-500 italic font-black leading-none" />
+              <input type="number" step="0.1" value={local[k]} onChange={e => setLocal({...local, [k]: e.target.value})} className="param-input italic shadow-inner" />
             </div>
           ))}
           <button onClick={async () => {
             const list = aquariums.map(a => a.id === selectedAqId ? { ...a, params: local } : a);
             await updateDoc(doc(db, "users", user.uid), { aquariums: list }); alert("Обновлено!");
-          }} className="w-full mt-6 py-4 bg-cyan-600 text-white rounded-xl font-bold uppercase text-[9px] tracking-widest shadow-xl">Применить параметры</button>
+          }} className="action-btn-main !mt-8 shadow-cyan-900/50 uppercase italic">Применить параметры</button>
+        </div>
+      </div>
+    );
+  };
+
+  const Tools = () => {
+    const [tool, setTool] = useState(null);
+    const [v, setV] = useState({ v: 300, c: 7, t: 8 });
+    const [brand, setBrand] = useState('Reef Exclusive');
+
+    const selectedReagent = useMemo(() => {
+        const list = tool === 'kh' ? REAGENTS.kh : REAGENTS.ca;
+        return list?.find(r => r.brand === brand) || list?.[0];
+    }, [brand, tool]);
+
+    const resCalculation = useMemo(() => {
+        if (!selectedReagent || !v.v) return { total: 0, daily: 0, days: 1 };
+        const diff = v.t - v.c;
+        if (diff <= 0) return { total: 0, daily: 0, days: 1 };
+        const totalNeeded = diff * v.v * selectedReagent.potency;
+        const days = Math.ceil(diff / (tool === 'kh' ? 0.5 : 20.0));
+        return { total: totalNeeded.toFixed(1), daily: (totalNeeded / days).toFixed(1), days };
+    }, [v, selectedReagent, tool]);
+
+    if (!tool) return (
+      <div className="view-container animate-fadeIn italic font-black leading-none">
+        <h2 className="text-xl font-bold text-white uppercase mb-10 tracking-tight italic">Инструменты</h2>
+        <div className="grid grid-cols-2 gap-5 leading-none italic font-black">
+          {[
+            { id:'kh', n:'KH Буфер', i:Activity, c:'text-purple-400' },
+            { id:'ca', n:'Кальций', i:Beaker, c:'text-blue-400' },
+            { id:'bal', n:'Баллинг', i:Droplets, c:'text-yellow-400' },
+            { id:'vol', n:'Объем', i:Box, c:'text-cyan-400' }
+          ].map(i => (
+            <button key={i.id} onClick={()=>setTool(i.id)} className="premium-card !p-8 flex flex-col items-center gap-4 active:scale-95 transition-all shadow-xl leading-none italic">
+              <div className="p-4 bg-slate-950 rounded-2xl shadow-inner"><i.i className={i.c} size={28} /></div>
+              <span className="text-[10px] font-black uppercase text-slate-300 tracking-widest">{i.n}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+    );
+
+    return (
+      <div className="view-container animate-fadeIn italic font-black leading-none font-black">
+        <button onClick={()=>setTool(null)} className="flex items-center gap-2 text-cyan-400 text-[10px] uppercase font-bold mb-8 active:scale-90 transition-all leading-none italic"><ArrowLeft size={16}/> Назад</button>
+        <div className="premium-card !p-8 space-y-10 shadow-2xl leading-none font-black italic shadow-inner">
+          <div className="space-y-6">
+            <label className="text-[10px] text-slate-600 uppercase font-black tracking-widest px-4 leading-none italic">Объем системы (Л)</label>
+            <input type="number" value={v.v} onChange={e => setV({...v, v: e.target.value})} className="w-full bg-transparent text-center text-5xl font-mono font-black text-white outline-none border-b-2 border-slate-900 focus:border-cyan-500 transition-all pb-2 shadow-inner italic" placeholder="000" />
+            
+            {(tool === 'kh' || tool === 'ca') && (
+               <div className="space-y-6 italic leading-none font-black leading-none">
+                 <div>
+                    <label className="text-[10px] text-slate-700 uppercase font-black px-4 italic mb-2 block leading-none">Выберите бренд</label>
+                    <select value={brand} onChange={e => setBrand(e.target.value)} className="w-full bg-slate-950 border border-white/5 p-4 rounded-xl text-white font-black uppercase text-xs italic outline-none shadow-xl">
+                        {(tool === 'kh' ? REAGENTS.kh : REAGENTS.ca).map(r => <option key={r.brand} value={r.brand}>{r.brand}</option>)}
+                    </select>
+                 </div>
+                 <div className="grid grid-cols-2 gap-4">
+                   <div className="bg-slate-950 p-5 rounded-2xl border border-white/5 text-center shadow-inner leading-none italic">
+                     <label className="text-[8px] text-slate-800 uppercase font-black mb-2 block leading-none">Было</label>
+                     <input type="number" value={v.c} onChange={e => setV({...v, c: e.target.value})} className="bg-transparent text-white text-2xl font-black w-full text-center outline-none italic leading-none" />
+                   </div>
+                   <div className="bg-slate-950 p-5 rounded-2xl border border-white/5 text-center shadow-inner leading-none italic">
+                     <label className="text-[8px] text-slate-800 uppercase font-black mb-2 block leading-none">Цель</label>
+                     <input type="number" value={v.t} onChange={e => setV({...v, t: e.target.value})} className="bg-transparent text-white text-2xl font-black w-full text-center outline-none italic leading-none" />
+                   </div>
+                 </div>
+               </div>
+            )}
+          </div>
+          <div className="bg-cyan-900/10 p-10 rounded-3xl border border-cyan-500/20 text-center shadow-inner relative overflow-hidden leading-none italic font-black">
+            <Calculator className="absolute -right-4 -bottom-4 opacity-5 rotate-12" size={150}/>
+            <p className="text-[9px] text-cyan-400 font-bold uppercase mb-4 tracking-widest italic opacity-60">Дозировка</p>
+            <div className="text-6xl font-black text-white italic tracking-tighter leading-none relative z-10 mb-4">
+              {resCalculation.total} <span className="text-2xl text-cyan-500/30 ml-1 font-normal not-italic uppercase tracking-widest leading-none italic">г</span>
+            </div>
+            <p className="text-[9px] text-slate-300 font-black uppercase tracking-widest opacity-60 leading-relaxed italic leading-none font-black italic">
+                Вносить по {resCalculation.daily}г в день<br/>
+                в течение {resCalculation.days} дней
+            </p>
+          </div>
         </div>
       </div>
     );
@@ -302,83 +412,29 @@ export default function App() {
   const Livestock = () => {
     const list = livestock.filter(l => l.aqId === selectedAqId);
     return (
-      <div className="max-w-md mx-auto px-5 pt-8 pb-12 animate-fadeIn italic font-black leading-none">
-        <div className="flex justify-between items-center mb-8">
-          <h2 className="text-xl font-bold text-white uppercase italic tracking-tighter">Био-Сфера</h2>
-          <button onClick={() => setIsAddingCoral(true)} className="p-2.5 bg-cyan-600 rounded-xl text-white shadow-lg active:scale-90 transition-all leading-none"><Plus size={20}/></button>
+      <div className="view-container animate-fadeIn italic font-black leading-none">
+        <div className="flex justify-between items-center mb-10 leading-none italic">
+          <h2 className="text-xl font-black text-white uppercase italic tracking-tighter leading-none">Био-сфера</h2>
+          <button onClick={() => setIsAddingCoral(true)} className="p-3 bg-cyan-600 rounded-2xl text-white shadow-lg active:scale-90 transition-all leading-none shadow-cyan-950/40"><Plus size={24}/></button>
         </div>
-
-        <div className="space-y-4">
+        <div className="space-y-4 leading-none">
            {list.length === 0 ? (
-               <div className="py-20 text-center opacity-10"><Fish size={60} className="mx-auto mb-4"/><p className="text-[9px] uppercase font-bold">Журнал пуст</p></div>
+               <div className="py-24 text-center opacity-10 leading-none italic"><Fish size={80} className="mx-auto mb-4"/><p className="text-[10px] uppercase font-black italic leading-none">Сектор пуст</p></div>
            ) : list.map(item => (
-               <div key={item.id} className="glass-card !p-4 flex justify-between items-center group leading-none">
-                  <div className="flex items-center gap-4">
-                      <div className={`w-2 h-2 rounded-full ${item.type === 'sps' ? 'bg-purple-500 shadow-[0_0_10px_purple]' : item.type === 'lps' ? 'bg-emerald-500 shadow-[0_0_10px_#10b981]' : 'bg-yellow-500'}`}></div>
-                      <div className="leading-none">
-                          <h3 className="text-white font-bold text-sm uppercase italic leading-none">{item.name}</h3>
-                          <p className="text-[9px] text-slate-700 uppercase mt-1.5 font-bold leading-none">{CORAL_TYPES[item.type]?.label}</p>
+               <div key={item.id} className="premium-card !p-5 flex justify-between items-center group leading-none italic shadow-xl bg-slate-900/40 border-none italic font-black">
+                  <div className="flex items-center gap-4 italic leading-none font-black italic font-black">
+                      <div className={`w-2.5 h-2.5 rounded-full ${item.type === 'sps' ? 'bg-purple-500 shadow-[0_0_15px_purple]' : item.type === 'lps' ? 'bg-emerald-500 shadow-[0_0_15px_#10b981]' : 'bg-yellow-500'} italic`}></div>
+                      <div className="leading-none italic font-black italic">
+                          <h3 className="text-white font-black text-sm uppercase italic leading-none">{item.name}</h3>
+                          <p className="text-[9px] text-slate-700 uppercase mt-1.5 font-black leading-none italic opacity-40 italic">{CORAL_TYPES[item.type]?.label}</p>
                       </div>
                   </div>
                   <button onClick={async () => {
                       const updated = livestock.filter(l => l.id !== item.id);
                       await updateDoc(doc(db, "users", user.uid), { livestock: updated });
-                  }} className="text-slate-800 hover:text-red-500 p-2 opacity-30 group-hover:opacity-100 transition-opacity"><Trash2 size={16}/></button>
+                  }} className="text-slate-800 hover:text-red-500 p-2 opacity-30 group-hover:opacity-100 transition-opacity italic leading-none"><Trash2 size={16}/></button>
                </div>
            ))}
-        </div>
-      </div>
-    );
-  };
-
-  const Tools = () => {
-    const [tool, setTool] = useState(null);
-    const [v, setV] = useState({ v: 300, c: 7, t: 8, f: 'nahco3' });
-    const res = useMemo(() => ((v.t - v.c) * v.v * (tool==='kh'?CALC_DATA.kh[v.f].coeff:0.003665)).toFixed(1), [v, tool]);
-
-    if (!tool) return (
-      <div className="max-w-md mx-auto px-5 pt-8 pb-12 animate-fadeIn italic font-black leading-none">
-        <h2 className="text-xl font-bold text-white uppercase mb-10 tracking-tighter">Инструменты</h2>
-        <div className="grid grid-cols-2 gap-4">
-          {[
-            { id:'kh', n:'KH Буфер', i:Activity, c:'text-purple-400' },
-            { id:'ca', n:'Кальций', i:Beaker, c:'text-blue-400' },
-            { id:'bal', n:'Баллинг', i:Droplets, c:'text-yellow-400' },
-            { id:'vol', n:'Объем', i:Box, c:'text-cyan-400' }
-          ].map(i => (
-            <button key={i.id} onClick={()=>setTool(i.id)} className="glass-card !p-6 flex flex-col items-center gap-3 active:scale-95 transition-all">
-              <div className="p-3.5 bg-slate-950 rounded-xl shadow-inner"><i.i className={i.c} size={22} /></div>
-              <span className="text-[9px] font-bold uppercase text-slate-400 tracking-widest">{i.n}</span>
-            </button>
-          ))}
-        </div>
-      </div>
-    );
-
-    return (
-      <div className="max-w-md mx-auto px-5 pt-8 animate-fadeIn italic font-black leading-none">
-        <button onClick={()=>setTool(null)} className="flex items-center gap-2 text-cyan-400 text-[10px] uppercase font-bold mb-8 active:scale-90 transition-all leading-none italic"><ArrowLeft size={16}/> Вернуться</button>
-        <div className="glass-card !p-8 space-y-10 shadow-2xl leading-none">
-          <div className="space-y-6 leading-none italic">
-            <label className="text-[9px] text-slate-600 uppercase font-bold tracking-widest px-4 italic">Масса системы (Л)</label>
-            <input type="number" value={v.v} onChange={e => setV({...v, v: e.target.value})} className="w-full bg-transparent text-center text-4xl font-mono font-bold text-white outline-none border-b border-slate-800 focus:border-cyan-500 transition-all pb-2 shadow-inner" placeholder="000" />
-            <div className="grid grid-cols-2 gap-4 leading-none font-bold">
-              <div className="bg-slate-950 p-4 rounded-xl border border-white/5 text-center shadow-inner">
-                <label className="text-[7px] text-slate-700 uppercase font-bold mb-2 block">Было</label>
-                <input type="number" value={v.c} onChange={e => setV({...v, c: e.target.value})} className="bg-transparent text-white text-lg font-bold w-full text-center outline-none" />
-              </div>
-              <div className="bg-slate-950 p-4 rounded-xl border border-white/5 text-center shadow-inner">
-                <label className="text-[7px] text-slate-700 uppercase font-bold mb-2 block">Цель</label>
-                <input type="number" value={v.t} onChange={e => setV({...v, t: e.target.value})} className="bg-transparent text-white text-lg font-bold w-full text-center outline-none" />
-              </div>
-            </div>
-          </div>
-          <div className="bg-cyan-900/10 p-10 rounded-3xl border border-cyan-500/20 text-center shadow-inner relative overflow-hidden leading-none font-black">
-            <p className="text-[9px] text-cyan-400 font-bold uppercase mb-4 tracking-[0.2em] italic opacity-60">Дозировка</p>
-            <div className="text-6xl font-black text-white italic tracking-tighter leading-none relative z-10">
-              {res} <span className="text-xl text-cyan-500/20 ml-2 font-normal not-italic uppercase">г</span>
-            </div>
-          </div>
         </div>
       </div>
     );
@@ -388,140 +444,155 @@ export default function App() {
     const [img, setImg] = useState(null);
     const [res, setRes] = useState('');
     const [busy, setBusy] = useState(false);
-    const handle = async (e) => {
+    
+    const handleDoc = async (e) => {
       const f = e.target.files[0]; if (!f) return;
       setBusy(true); setImg(URL.createObjectURL(f));
       try {
         const reader = new FileReader();
         const base64 = await new Promise(r => { reader.onload = () => r(reader.result.split(',')[1]); reader.readAsDataURL(f); });
-        const txt = await callVision(base64, f.type, "Analyze this aquarium specimen photo. Identify diseases RTN/STN or parasites. Reply briefly in Russian.");
+        const txt = await callVision(base64, f.type, "Identify diseases in this aquarium photo. Reply briefly in Russian.");
         setRes(txt);
-      } catch (err) { alert("Ошибка ИИ."); }
+      } catch (err) { alert("Ошибка связи."); }
       setBusy(false);
     };
+
     return (
-      <div className="max-w-md mx-auto px-5 pt-8 animate-fadeIn font-black italic leading-none">
-        <h2 className="text-xl font-bold uppercase text-white mb-10 italic underline decoration-emerald-500 decoration-4 underline-offset-8">ИИ Доктор</h2>
-        <div className="bg-emerald-950/5 p-10 rounded-3xl border border-emerald-500/20 text-center relative overflow-hidden mb-10 shadow-2xl">
-          <Stethoscope className="absolute -right-8 -bottom-8 opacity-5 rotate-12" size={200}/>
-          <input type="file" id="ai-doc" className="hidden" onChange={handle} />
-          <label htmlFor="ai-doc" className={`w-full py-4 bg-white text-emerald-950 rounded-xl font-bold uppercase text-[9px] tracking-widest flex items-center justify-center gap-3 cursor-pointer shadow-xl active:scale-95 transition-all z-10 relative ${busy ? 'opacity-50 pointer-events-none' : ''}`}>
-            {busy ? <Loader2 className="animate-spin" /> : <Camera />}
+      <div className="view-container animate-fadeIn font-black italic leading-none italic font-black">
+        <h2 className="text-xl font-black uppercase text-white mb-10 italic underline decoration-emerald-500 decoration-4 underline-offset-8 tracking-tighter leading-none italic">ИИ Доктор</h2>
+        <div className="bg-emerald-950/5 p-10 rounded-[2.5rem] border border-emerald-500/20 text-center relative overflow-hidden mb-10 shadow-2xl">
+          <Stethoscope className="absolute -right-8 -bottom-8 opacity-5 rotate-12 text-emerald-500 shadow-xl" size={200}/>
+          <p className="text-[9px] text-emerald-500/60 uppercase font-black tracking-widest mb-10 z-10 relative italic font-black italic">Биометрический анализ патогенов обитателей рифа</p>
+          <input type="file" id="ai-doc" className="hidden" onChange={handleDoc} />
+          <label htmlFor="ai-doc" className={`w-full py-5 bg-white text-emerald-950 rounded-2xl font-bold uppercase text-[10px] tracking-widest flex items-center justify-center gap-3 cursor-pointer shadow-xl active:scale-95 transition-all z-10 relative leading-none ${busy ? 'opacity-50 pointer-events-none' : ''}`}>
+            {busy ? <Loader2 className="animate-spin" size={16}/> : <Camera size={16}/>}
             <span>{busy ? 'Анализ...' : 'Изучить пациента'}</span>
           </label>
         </div>
-        {img && <div className="rounded-3xl overflow-hidden border-4 border-slate-900 shadow-2xl h-64 mb-10 italic"><img src={img} className="w-full h-full object-cover" /></div>}
-        {res && <div className="bg-slate-900/60 p-8 rounded-[2rem] border border-emerald-500/20 shadow-xl animate-slideUp">
-          <p className="text-slate-300 text-xs font-medium leading-relaxed italic opacity-80">{res}</p>
+        {img && <div className="rounded-[2.5rem] overflow-hidden border-8 border-slate-950 shadow-2xl h-80 mb-10 italic leading-none shadow-inner italic font-black leading-none shadow-inner"><img src={img} className="w-full h-full object-cover leading-none" /></div>}
+        {res && <div className="bg-slate-900/60 p-8 rounded-3xl border border-emerald-500/20 shadow-xl animate-slideUp relative italic leading-none font-black shadow-inner">
+            <div className="absolute top-0 left-10 -translate-y-1/2 bg-emerald-500 text-slate-950 px-8 py-2 rounded-full font-black text-[9px] uppercase italic shadow-lg">Вердикт ИИ</div>
+          <p className="text-slate-200 text-xs font-medium leading-relaxed italic opacity-90 leading-loose italic">{res}</p>
         </div>}
       </div>
     );
   };
 
   const Profile = () => {
-    const left = useMemo(() => userData?.subscription?.expiresAt ? Math.max(0, Math.ceil((new Date(userData.subscription.expiresAt) - new Date()) / 86400000)) : 0, [userData]);
+    const leftDays = useMemo(() => userData?.subscription?.expiresAt ? Math.max(0, Math.ceil((new Date(userData.subscription.expiresAt) - new Date()) / 86400000)) : 0, [userData]);
     const [editData, setEditData] = useState({ fullName: '', city: '', country: '', dob: '' });
     useEffect(() => { if (userData?.personalInfo) setEditData(userData.personalInfo); }, [userData]);
 
     return (
-      <div className="max-w-md mx-auto px-5 pt-8 pb-12 animate-fadeIn italic font-black leading-none">
-        <div className="glass-card !p-10 flex flex-col items-center text-center relative">
-          <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-cyan-600 to-blue-800 shadow-lg shadow-cyan-900/30"></div>
-          <div className="w-20 h-20 bg-gradient-to-tr from-cyan-600 to-blue-800 rounded-3xl flex items-center justify-center text-white font-bold text-4xl shadow-xl ring-8 ring-slate-950 uppercase italic">
-              {user?.email?.[0] || 'H'}
+      <div className="view-container animate-fadeIn italic font-black leading-none font-black italic">
+        <div className="premium-card !p-12 flex flex-col items-center text-center relative shadow-cyan-950/30 italic font-black">
+          <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-cyan-600 to-blue-800 shadow-xl leading-none"></div>
+          <div className="avatar-circle italic shadow-cyan-900/50 flex items-center justify-center italic font-black">
+              {userData?.personalInfo?.fullName?.[0]?.toUpperCase() || 'H'}
           </div>
           {!isEditingProfile ? (
-            <div className="mt-8 space-y-4 w-full leading-none">
-                <h2 className="text-xl font-bold text-white uppercase italic tracking-tight">{userData?.personalInfo?.fullName || 'ХРАНИТЕЛЬ'}</h2>
-                <p className="text-[10px] text-slate-700 uppercase tracking-[0.4em] mb-10 font-bold">{user?.email}</p>
-                <div className="grid grid-cols-2 gap-3 pt-4">
-                    <div className="bg-slate-950/50 p-4 rounded-2xl border border-white/5 text-left italic leading-none">
-                        <p className="text-[7px] text-slate-800 uppercase font-bold mb-2">Локация</p>
-                        <p className="text-xs text-slate-300 truncate font-black">{userData?.personalInfo?.city || '-'}, {userData?.personalInfo?.country || '-'}</p>
+            <div className="mt-12 space-y-4 w-full italic">
+                <h2 className="text-2xl font-black text-white uppercase italic tracking-tight leading-none italic">{userData?.personalInfo?.fullName || 'ХРАНИТЕЛЬ'}</h2>
+                <p className="text-[10px] text-slate-700 uppercase tracking-[0.4em] mb-10 font-black leading-none italic opacity-50">{user?.email}</p>
+                <div className="grid grid-cols-2 gap-3 pt-6 leading-none font-black italic">
+                    <div className="bg-slate-950/50 p-5 rounded-3xl border border-white/5 text-left italic leading-none shadow-inner">
+                        <p className="text-[7px] text-slate-800 uppercase font-black mb-2 opacity-30 leading-none italic font-black">Локация</p>
+                        <p className="text-xs text-slate-300 truncate font-black leading-none italic">{userData?.personalInfo?.city || '-'}, {userData?.personalInfo?.country || '-'}</p>
                     </div>
-                    <div className="bg-slate-950/50 p-4 rounded-2xl border border-white/5 text-left italic leading-none">
-                        <p className="text-[7px] text-slate-800 uppercase font-bold mb-2">Реестр</p>
-                        <p className="text-xs text-slate-300 font-bold font-black">{userData?.personalInfo?.dob || '-'}</p>
+                    <div className="bg-slate-950/50 p-5 rounded-3xl border border-white/5 text-left italic leading-none shadow-inner">
+                        <p className="text-[7px] text-slate-800 uppercase font-black mb-2 opacity-30 leading-none italic font-black">Рождение</p>
+                        <p className="text-xs text-slate-300 font-bold font-black leading-none italic">{userData?.personalInfo?.dob || '-'}</p>
                     </div>
                 </div>
-                <button onClick={() => setIsEditingProfile(true)} className="flex items-center gap-2 text-cyan-400 text-[9px] font-bold uppercase tracking-widest pt-8 mx-auto hover:text-cyan-300 transition-colors leading-none italic"><Settings size={12}/> Редактировать профиль</button>
+                <button onClick={() => setIsEditingProfile(true)} className="flex items-center gap-2 text-cyan-400 text-[9px] font-black uppercase tracking-widest pt-12 mx-auto hover:text-cyan-300 transition-colors leading-none italic shadow-inner font-black"><Edit2 size={12}/> Редактировать профиль</button>
             </div>
           ) : (
-            <div className="mt-8 space-y-4 w-full text-left font-bold leading-none">
-                <div className="space-y-1.5 leading-none"><label className="text-[7px] text-slate-700 uppercase px-2">Позывной</label><input value={editData.fullName} onChange={e=>setEditData({...editData, fullName: e.target.value})} className="profile-input" /></div>
-                <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-1.5 leading-none"><label className="text-[7px] text-slate-700 uppercase px-2">Страна</label><input value={editData.country} onChange={e=>setEditData({...editData, country: e.target.value})} className="profile-input" /></div>
-                    <div className="space-y-1.5 leading-none"><label className="text-[7px] text-slate-700 uppercase px-2">Сектор</label><input value={editData.city} onChange={e=>setEditData({...editData, city: e.target.value})} className="profile-input" /></div>
+            <div className="mt-12 space-y-6 w-full text-left font-black leading-none italic">
+                <div className="space-y-2 leading-none italic"><label className="text-[7px] text-slate-800 uppercase px-4 leading-none italic font-black">Позывной</label><input value={editData.fullName} onChange={e=>setEditData({...editData, fullName: e.target.value})} className="profile-input italic shadow-inner border-cyan-500/10 font-black italic" /></div>
+                <div className="grid grid-cols-2 gap-4 leading-none italic">
+                    <div className="space-y-2 leading-none italic"><label className="text-[7px] text-slate-700 uppercase px-4 leading-none italic font-black">Страна</label><input value={editData.country} onChange={e=>setEditData({...editData, country: e.target.value})} className="profile-input italic shadow-inner border-cyan-500/10 font-black italic" /></div>
+                    <div className="space-y-2 leading-none italic"><label className="text-[7px] text-slate-700 uppercase px-4 leading-none italic font-black">Сектор</label><input value={editData.city} onChange={e=>setEditData({...editData, city: e.target.value})} className="profile-input italic shadow-inner border-cyan-500/10 font-black italic" /></div>
                 </div>
-                <div className="space-y-1.5 leading-none"><label className="text-[7px] text-slate-700 uppercase px-2">Дата в реестре</label><input type="date" value={editData.dob} onChange={e=>setEditData({...editData, dob: e.target.value})} className="profile-input" /></div>
-                <div className="flex gap-3 pt-6 leading-none">
-                    <button onClick={() => setIsEditingProfile(false)} className="flex-1 py-3.5 bg-slate-800 rounded-xl text-[9px] font-bold uppercase italic active:scale-95 transition-all">Отмена</button>
-                    <button onClick={() => updateProfileData(editData)} className="flex-1 py-3.5 bg-cyan-600 rounded-xl text-[9px] font-bold uppercase italic text-white shadow-lg active:scale-95 transition-all">Сохранить</button>
+                <div className="space-y-2 leading-none italic"><label className="text-[7px] text-slate-700 uppercase px-4 leading-none italic font-black">Дата рождения</label><input type="date" value={editData.dob} onChange={e=>setEditData({...editData, dob: e.target.value})} className="profile-input italic shadow-inner border-cyan-500/10 font-black italic" /></div>
+                <div className="flex gap-4 pt-8 leading-none italic font-black leading-none italic">
+                    <button onClick={() => setIsEditingProfile(false)} className="flex-1 py-5 bg-slate-900 border border-white/5 rounded-2xl text-[10px] font-black uppercase active:scale-95 transition-all italic leading-none opacity-40 italic">Отмена</button>
+                    <button onClick={() => updateProfileData(editData)} className="flex-1 py-5 bg-cyan-600 rounded-2xl text-[10px] font-black uppercase italic text-white shadow-lg shadow-cyan-900/30 active:scale-95 transition-all leading-none italic font-black italic">Сохранить</button>
                 </div>
             </div>
           )}
         </div>
-        
-        <div className="bg-amber-950/10 p-8 rounded-3xl mt-6 border border-amber-500/20 shadow-2xl relative overflow-hidden group">
-           <Crown className="absolute -right-4 -bottom-4 opacity-[0.03] text-amber-500 group-hover:scale-110 transition-transform duration-700" size={120}/>
-           <div className="flex justify-between items-center mb-6 italic leading-none">
-              <div className="flex items-center gap-4 leading-none font-bold"><Crown className="text-amber-500 shadow-lg shadow-amber-900/30" size={32}/><div><p className="text-amber-200 uppercase text-[9px] font-bold italic">ТЕРМИНАЛ ПРО</p></div></div>
-              <div className="text-[60px] font-black text-amber-500 tracking-tighter leading-none shadow-amber-950/50">{left}</div>
+        <div className="bg-amber-950/10 p-10 rounded-3xl mt-8 border border-amber-500/20 shadow-2xl relative overflow-hidden group italic leading-none font-black shadow-inner leading-none">
+           <Crown className="absolute -right-4 -bottom-4 opacity-[0.03] text-amber-500 group-hover:scale-110 transition-transform duration-700 italic font-black" size={120}/>
+           <div className="flex justify-between items-center mb-6 leading-none italic font-black">
+              <div className="flex items-center gap-4 leading-none font-bold italic font-black"><Crown className="text-amber-500 shadow-xl shadow-amber-900/30 italic" size={32}/><div><p className="text-amber-200 uppercase text-[9px] font-bold italic leading-none italic">ТЕРМИНАЛ ПРО</p></div></div>
+              <div className="text-6xl font-black text-amber-500 tracking-tighter leading-none italic drop-shadow-2xl italic">{leftDays}</div>
            </div>
-           <div className="progress-track leading-none shadow-inner"><div className="progress-fill shadow-amber-500/50" style={{width:`${(left/30)*100}%`}}></div></div>
+           <div className="progress-track leading-none italic shadow-inner leading-none"><div className="progress-fill shadow-amber-500/50 leading-none" style={{width:`${(leftDays/30)*100}%`}}></div></div>
         </div>
-        <button onClick={() => signOut(auth)} className="shutdown-btn mt-10 active:scale-95 transition-all shadow-xl leading-none">
+        <button onClick={() => signOut(auth)} className="shutdown-btn mt-12 active:scale-95 transition-all shadow-xl leading-none italic font-bold uppercase shadow-red-900/20 italic font-black border-none cursor-pointer leading-none">
           <LogOut size={16}/> Завершить сессию
         </button>
       </div>
     );
   };
 
-  // --- Auth Screen ---
+  // --- Auth Render ---
   if (!user && !loading) return (
-    <div className="min-h-screen bg-[#020617] flex flex-col items-center justify-center p-8 selection:bg-cyan-500/50 italic font-black">
-      <div className="w-full max-w-sm text-center space-y-12">
-        <div className="w-24 h-24 bg-gradient-to-tr from-cyan-600 to-blue-900 rounded-[2rem] flex items-center justify-center mx-auto shadow-[0_40px_80px_rgba(0,0,0,1)] rotate-12 transition-transform duration-1000 ring-[10px] ring-slate-900/50 leading-none">
-            <Fish size={50} strokeWidth={4} className="text-white drop-shadow-2xl" />
+    <div className="auth-screen italic font-black leading-none font-black italic font-black">
+      <div className="w-full max-w-sm text-center space-y-12 italic font-black">
+        <div className="w-24 h-24 bg-gradient-to-tr from-cyan-600 to-blue-900 rounded-[2.5rem] flex items-center justify-center mx-auto shadow-[0_40px_80px_rgba(0,0,0,1)] rotate-12 transition-transform duration-1000 ring-[10px] ring-slate-900/50 leading-none shadow-cyan-900/40 italic font-black">
+            <Fish size={50} strokeWidth={4} className="text-white drop-shadow-2xl italic font-black" />
         </div>
-        <h1 className="text-6xl font-black text-white italic tracking-tighter uppercase drop-shadow-[0_10px_30px_rgba(0,0,0,0.5)] leading-none">Keeper</h1>
-        <div className="bg-slate-900/80 p-8 rounded-[3.5rem] border border-white/5 shadow-2xl space-y-8 backdrop-blur-xl ring-1 ring-white/5 leading-none">
-           <div className="flex bg-slate-950 p-1.5 rounded-2xl leading-none shadow-inner italic">
-             <button onClick={()=>setAuthMode('login')} className={`flex-1 py-4 rounded-xl text-[11px] font-bold uppercase italic transition-all leading-none ${authMode==='login'?'bg-slate-800 text-white shadow-xl':'text-slate-800'}`}>ВХОД</button>
-             <button onClick={()=>setAuthMode('reg')} className={`flex-1 py-4 rounded-xl text-[11px] font-bold uppercase italic transition-all leading-none ${authMode==='reg'?'bg-slate-800 text-white shadow-xl':'text-slate-800'}`}>РЕКРУТ</button>
+        <h1 className="text-6xl font-black text-white italic tracking-tighter uppercase drop-shadow-[0_10px_30px_rgba(0,0,0,0.5)] leading-none underline decoration-cyan-500/20 decoration-[8px] underline-offset-[16px] italic font-black">Keeper</h1>
+        <div className="bg-slate-900/80 p-10 rounded-[4rem] border border-white/5 shadow-2xl space-y-8 backdrop-blur-3xl ring-1 ring-white/5 leading-none font-black italic font-black">
+           <div className="flex bg-slate-950 p-2 rounded-[2.5rem] leading-none shadow-inner italic font-black">
+             <button onClick={()=>setAuthMode('login')} className={`flex-1 py-5 rounded-[2rem] text-sm font-black italic uppercase transition-all duration-700 leading-none ${authMode==='login'?'bg-slate-800 text-white shadow-2xl':'text-slate-800 opacity-40'}`}>ВХОД</button>
+             <button onClick={()=>setAuthMode('reg')} className={`flex-1 py-5 rounded-[2rem] text-sm font-black italic uppercase transition-all duration-700 leading-none ${authMode==='reg'?'bg-slate-800 text-white shadow-2xl':'text-slate-800 opacity-40'}`}>РЕКРУТ</button>
            </div>
-           <form onSubmit={handleAuthSubmit} className="space-y-4 font-bold italic leading-none">
-             {authMode==='reg' && <input placeholder="ПОЗЫВНОЙ" required className="auth-input shadow-inner !p-5 !text-lg leading-none" value={fullName} onChange={e=>setFullName(e.target.value)} />}
-             <input type="email" placeholder="ACCESS EMAIL" required className="auth-input shadow-inner !p-5 !text-lg leading-none" value={email} onChange={e=>setEmail(e.target.value)} />
-             <input type="password" placeholder="ACCESS KEY" required className="auth-input shadow-inner !p-5 !text-lg leading-none" value={password} onChange={e=>setPassword(e.target.value)} />
-             <button className="w-full py-5 bg-cyan-600 text-white rounded-2xl font-black uppercase text-xs tracking-widest shadow-xl shadow-cyan-900/30 active:scale-95 transition-all mt-6 italic leading-none">АКТИВИРОВАТЬ</button>
+           <form onSubmit={handleAuthSubmit} className="space-y-4 font-bold italic font-black leading-none italic font-black">
+             {authMode==='reg' && <input placeholder="ПОЗЫВНОЙ" required className="auth-input italic shadow-inner !p-5 leading-none italic font-black" value={fullName} onChange={e=>setFullName(e.target.value)} />}
+             <input type="email" placeholder="ACCESS EMAIL" required className="auth-input italic shadow-inner !p-5 leading-none italic font-black" value={email} onChange={e=>setEmail(e.target.value)} />
+             <input type="password" placeholder="ACCESS KEY" required className="auth-input italic shadow-inner !p-5 leading-none italic font-black" value={password} onChange={e=>setPassword(e.target.value)} />
+             <button className="btn-confirm-auth w-full py-5 bg-cyan-600 text-white rounded-[2rem] font-black uppercase text-xs tracking-widest shadow-xl shadow-cyan-900/30 active:scale-95 transition-all mt-6 italic border-none leading-none">АКТИВИРОВАТЬ</button>
            </form>
-           <button onClick={handleGoogleLogin} className="w-full py-5 bg-white text-slate-950 rounded-2xl font-bold uppercase text-[9px] tracking-widest flex items-center justify-center gap-6 active:scale-95 transition-all shadow-xl leading-none italic"><img src="https://www.svgrepo.com/show/475656/google-color.svg" className="w-5 h-5 shadow-2xl" alt="G" /> Google Link</button>
+           <button onClick={handleGoogleLogin} className="w-full py-5 bg-white text-slate-950 rounded-[2.5rem] font-bold uppercase text-[9px] tracking-widest flex items-center justify-center gap-6 active:scale-95 transition-all shadow-xl leading-none italic ring-2 ring-white/5 border-none cursor-pointer italic font-black leading-none"><img src="https://www.svgrepo.com/show/475656/google-color.svg" className="w-5 h-5 shadow-2xl italic font-black" alt="G" /> Google Link</button>
         </div>
       </div>
     </div>
   );
 
-  if (loading) return <div className="fixed inset-0 bg-[#020617] flex flex-col items-center justify-center font-black text-cyan-400 uppercase tracking-widest text-[10px] animate-pulse italic leading-none gap-6 italic">
-      <Fish size={60} className="rotate-12" strokeWidth={5}/>
-      <span>BOOTING CORE...</span>
-  </div>;
-
   return (
-    <div className="min-h-screen bg-[#020617] text-slate-200">
+    <div className="app-shell italic font-black leading-none font-black italic font-black">
       <style>{`
-        .glass-card { background: rgba(15, 23, 42, 0.6); border-radius: 2.5rem; border: 1px solid rgba(255,255,255,0.05); padding: 2rem; box-shadow: 0 30px 60px rgba(0,0,0,0.4); position: relative; transition: 0.4s ease; }
-        .nav-btn { flex: 1; display: flex; flex-direction: column; align-items: center; color: #1e293b; background: none; border: none; cursor: pointer; transition: 0.5s; padding: 12px 0; }
-        .nav-btn.active { color: #06b6d4; filter: drop-shadow(0 0 15px rgba(6,182,212,0.8)); transform: scale(1.15); }
-        .nav-label { font-size: 7px; font-weight: 800; text-transform: uppercase; margin-top: 5px; font-style: italic; opacity: 0.6; }
-        .auth-input { width: 100%; background: #020617; border: 1px solid #1e293b; border-radius: 1.5rem; padding: 1.5rem; color: white; text-align: center; font-weight: 900; font-size: 1.1rem; outline: none; transition: 0.3s; }
-        .profile-input { width: 100%; background: #020617; border: 1px solid #1e293b; border-radius: 1rem; padding: 1.25rem; color: white; outline: none; font-size: 0.9rem; font-style: italic; shadow-inner; font-weight: 700; transition: 0.3s; }
-        .profile-input:focus { border-color: #06b6d4; }
+        .app-shell { min-height: 100vh; background: #020617; color: #f8fafc; font-family: sans-serif; overflow-x: hidden; }
+        .view-container { max-width: 480px; margin: 0 auto; padding: 2rem 1.5rem 12rem 1.5rem; }
+        .header-title { font-size: 1.75rem; font-weight: 800; text-transform: uppercase; font-style: italic; color: white; letter-spacing: -0.02em; }
+        .header-subtitle { color: #06b6d4; font-weight: 700; text-transform: uppercase; font-size: 0.7rem; letter-spacing: 0.1em; opacity: 0.8; margin-top: 4px; }
+        .premium-card { background: rgba(15, 23, 42, 0.6); border-radius: 2.5rem; border: 1px solid rgba(255,255,255,0.05); padding: 2rem; position: relative; overflow: hidden; box-shadow: 0 30px 60px rgba(0,0,0,0.5); }
+        .card-bg-icon { position: absolute; bottom: -2rem; right: -2rem; opacity: 0.03; pointer-events: none; }
+        .accent-bar { width: 4px; height: 1.5rem; background: #06b6d4; border-radius: 99px; box-shadow: 0 0 10px #06b6d4; }
+        .stat-box { background: #020617; padding: 1.5rem; border-radius: 2rem; border: 1px solid rgba(255,255,255,0.03); text-align: center; }
+        .stat-label { font-size: 8px; font-weight: 800; color: #475569; text-transform: uppercase; display: block; margin-bottom: 4px; }
+        .stat-value { font-size: 2rem; font-weight: 900; color: white; font-family: monospace; }
+        .action-btn-main { width: 100%; padding: 1.5rem; background: #0891b2; color: white; border: none; border-radius: 2rem; font-weight: 900; text-transform: uppercase; font-size: 0.75rem; cursor: pointer; shadow-2xl; letter-spacing: 0.2em; font-style: italic; }
+        .nav-bar { position: fixed; bottom: 0; left: 50%; transform: translateX(-50%); width: 94%; max-width: 480px; background: rgba(15, 23, 42, 0.98); backdrop-filter: blur(50px); border: 1px solid rgba(255,255,255,0.05); padding: 0.6rem 1rem; z-index: 2000; margin-bottom: 1.5rem; border-radius: 3.5rem; box-shadow: 0 -20px 40px rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: space-around; }
+        .nav-btn { display: flex; flex-direction: column; align-items: center; background: none; border: none; color: #334155; cursor: pointer; transition: 0.3s; flex: 1; }
+        .nav-btn.active { color: #06b6d4; transform: translateY(-3px); filter: drop-shadow(0 0 10px rgba(6,182,212,0.6)); }
+        .nav-label { font-size: 7px; font-weight: 800; text-transform: uppercase; margin-top: 4px; font-style: italic; opacity: 0.5; }
+        .status-badge { font-size: 8px; font-weight: 800; padding: 4px 10px; border-radius: 99px; border: 1px solid rgba(16,185,129,0.3); color: #10b981; background: rgba(16,185,129,0.05); text-transform: uppercase; font-style: italic; }
+        .param-input { width: 6rem; background: #020617; border: 1px solid #1e293b; border-radius: 1rem; color: white; text-align: center; font-family: monospace; font-size: 1.1rem; padding: 0.6rem; outline: none; }
+        .upload-box { width: 100%; padding: 4rem 1rem; border: 4px dashed #164e63; background: rgba(15, 23, 42, 0.4); border-radius: 3rem; display: flex; flex-direction: column; align-items: center; gap: 1rem; cursor: pointer; }
+        .avatar-circle { width: 8rem; height: 8rem; background: linear-gradient(135deg, #06b6d4, #1e40af); border-radius: 3rem; display: flex; align-items: center; justify-content: center; color: white; font-size: 5rem; font-weight: 900; margin: 0 auto; border: 10px solid #020617; box-shadow: 0 20px 40px rgba(0,0,0,0.5); }
+        .profile-input { width: 100%; background: #020617; border: 1px solid #1e293b; border-radius: 1.5rem; padding: 1.5rem; color: white; outline: none; font-size: 1rem; font-style: italic; shadow-inner; font-weight: 700; transition: 0.3s; text-align: center; }
         .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.92); backdrop-filter: blur(25px); display: flex; align-items: center; justify-content: center; p: 2rem; z-index: 5000; }
-        .modal-card { background: #0f172a; border-radius: 3rem; p: 2.5rem; width: 100%; max-width: 400px; border: 1px solid rgba(255,255,255,0.05); shadow-[0_50px_100px_rgba(0,0,0,1)]; }
-        .progress-track { width: 100%; height: 8px; background: #020617; border-radius: 99px; overflow: hidden; padding: 2px; ring: 1px rgba(255,255,255,0.05); }
+        .modal-card { background: #0f172a; border-radius: 3.5rem; p: 2.5rem; width: 100%; max-width: 420px; border: 1px solid rgba(255,255,255,0.05); shadow-[0_50px_100px_rgba(0,0,0,1)]; }
+        .progress-track { width: 100%; height: 10px; background: #020617; border-radius: 99px; overflow: hidden; padding: 3px; ring: 1px rgba(255,255,255,0.05); }
         .progress-fill { height: 100%; background: linear-gradient(to right, #f59e0b, #ef4444); border-radius: 99px; transition: width 2s; shadow: 0 0 20px #f59e0b; }
-        .shutdown-btn { width: 100%; padding: 1.25rem; background: rgba(239,68,68,0.05); border: 1px solid rgba(239,68,68,0.1); border-radius: 1.5rem; color: #ef4444; font-weight: 900; letter-spacing: 0.3em; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 12px; transition: 0.3s; }
+        .shutdown-btn { width: 100%; padding: 1.25rem; background: rgba(239,68,68,0.05); border: 1px solid rgba(239,68,68,0.1); border-radius: 1.5rem; color: #ef4444; font-weight: 800; letter-spacing: 0.3em; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 12px; transition: 0.3s; border: none; font-size: 9px; uppercase; italic; }
+        .auth-screen { min-height: 100vh; background: #020617; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 2.5rem; }
+        .auth-logo-box { width: 24vw; height: 24vw; max-width: 150px; max-height: 150px; background: linear-gradient(135deg, #06b6d4, #1e40af); border-radius: 4rem; display: flex; align-items: center; justify-content: center; box-shadow: 0 40px 80px rgba(0,0,0,1); rotate: 12deg; }
+        .auth-brand { font-size: 15vw; max-size: 120px; font-weight: 900; color: white; text-transform: uppercase; font-style: italic; }
+        .auth-panel { background: #0f172a; padding: 3rem; border-radius: 5rem; border: 1px solid #1e293b; width: 100%; max-width: 500px; shadow-2xl; ring: 1px rgba(255,255,255,0.02); }
         @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
         @keyframes slideUp { from { transform: translateY(30px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
         .animate-fadeIn { animation: fadeIn 0.4s ease-out; }
@@ -537,7 +608,7 @@ export default function App() {
         {activeTab === 'profile' && <Profile />}
       </main>
       
-      <nav className="fixed bottom-0 left-0 w-full bg-slate-900/90 backdrop-blur-2xl border-t border-white/5 z-[2000] flex justify-around items-center px-4 rounded-t-[2.5rem] shadow-[0_-20px_40px_rgba(0,0,0,1)] ring-1 ring-white/5">
+      <nav className="nav-bar shadow-2xl">
         <NavItem icon={Activity} id="dashboard" label="ХАБ"/>
         <NavItem icon={Droplets} id="parameters" label="ЛАБ"/>
         <NavItem icon={Calculator} id="tools" label="ДОЗ"/>
@@ -548,15 +619,15 @@ export default function App() {
 
       {/* МОДАЛКИ (ФИКС) */}
       {isCreating && (
-        <div className="modal-overlay animate-fadeIn italic font-black leading-none">
-          <div className="modal-card">
-            <h2 className="text-2xl font-black text-white uppercase italic tracking-tighter mb-8 leading-none">Новая система</h2>
-            <div className="space-y-6">
-              <div className="space-y-2 leading-none"><label className="text-[10px] text-slate-700 uppercase font-black px-2 italic leading-none">Идентификатор</label><input autoFocus placeholder="Проект Зеро" className="auth-input italic shadow-inner !p-5 !text-lg font-black leading-none" value={newAqData.name} onChange={e=>setNewAqData({...newAqData, name: e.target.value})} /></div>
-              <div className="space-y-2 leading-none"><label className="text-[10px] text-slate-700 uppercase font-black px-2 italic leading-none">Чистый объем (Л)</label><input type="number" placeholder="100" className="auth-input italic shadow-inner !p-5 !text-4xl font-black leading-none" value={newAqData.volume} onChange={e=>setNewAqData({...newAqData, volume: e.target.value})} /></div>
-              <div className="flex flex-col gap-3 pt-6 leading-none italic">
-                  <button onClick={()=>handleAqAction('add', newAqData)} className="w-full py-5 bg-cyan-600 text-white rounded-2xl font-black uppercase text-[11px] tracking-widest shadow-xl active:scale-95 transition-all">Активировать</button>
-                  <button onClick={()=>setIsCreating(false)} className="w-full py-4 text-slate-700 font-black uppercase text-[9px] tracking-widest italic opacity-40">Отмена</button>
+        <div className="modal-overlay animate-fadeIn italic font-black leading-none shadow-inner">
+          <div className="modal-card shadow-inner">
+            <h2 className="text-2xl font-black text-white uppercase italic tracking-tighter mb-8 underline decoration-cyan-500 decoration-4 underline-offset-8 leading-none italic font-black shadow-inner">Новая система</h2>
+            <div className="space-y-6 leading-none italic font-black shadow-inner">
+              <div className="space-y-2 leading-none italic shadow-inner"><label className="text-[10px] text-slate-700 uppercase font-black px-2 italic shadow-inner leading-none">Идентификатор</label><input autoFocus placeholder="Проект Зеро" className="auth-input italic shadow-inner !p-5 !text-lg font-black leading-none border-cyan-500/10 shadow-inner" value={newAqData.name} onChange={e=>setNewAqData({...newAqData, name: e.target.value})} /></div>
+              <div className="space-y-2 leading-none italic shadow-inner"><label className="text-[10px] text-slate-700 uppercase font-black px-2 italic shadow-inner leading-none">Объем воды (Л)</label><input type="number" placeholder="100" className="auth-input italic shadow-inner !p-5 !text-4xl font-black leading-none border-cyan-500/10 shadow-inner" value={newAqData.volume} onChange={e=>setNewAqData({...newAqData, volume: e.target.value})} /></div>
+              <div className="flex flex-col gap-3 pt-6 leading-none italic font-black shadow-inner">
+                  <button onClick={()=>handleAqAction('add', newAqData)} className="w-full py-5 bg-cyan-600 text-white rounded-2xl font-black uppercase text-[11px] tracking-widest shadow-xl active:scale-95 transition-all shadow-inner border-none cursor-pointer leading-none">Активировать</button>
+                  <button onClick={()=>setIsCreating(false)} className="w-full py-4 text-slate-700 font-black uppercase text-[9px] tracking-widest italic opacity-40 leading-none shadow-inner border-none cursor-pointer leading-none">Отмена</button>
               </div>
             </div>
           </div>
@@ -564,51 +635,54 @@ export default function App() {
       )}
 
       {waterChangeModal && (
-        <div className="modal-overlay animate-fadeIn italic font-black">
-          <div className="modal-card text-center italic font-black leading-none">
-            <h2 className="text-4xl text-white uppercase italic mb-8 leading-none font-black underline decoration-cyan-500 decoration-4 underline-offset-8">Обслуживание</h2>
-            <div className="my-10 flex items-center justify-center gap-4 leading-none">
-              <input autoFocus type="number" placeholder="0" value={wcAmount} onChange={e=>setWcAmount(e.target.value)} className="w-full bg-transparent text-white text-7xl font-mono font-black text-center outline-none border-b border-slate-800 focus:border-cyan-500 transition-all pb-2 italic shadow-inner leading-none" />
-              <span className="text-3xl text-slate-800 italic leading-none">Л</span>
+        <div className="modal-overlay animate-fadeIn italic font-black leading-none shadow-inner">
+          <div className="modal-card text-center italic font-black leading-none shadow-cyan-950/20 shadow-inner italic font-black shadow-inner">
+            <h2 className="text-4xl text-white uppercase italic mb-8 font-black underline decoration-cyan-500 decoration-4 underline-offset-8 italic leading-none italic font-black shadow-inner">Refresh</h2>
+            <div className="my-12 flex items-center justify-center gap-4 leading-none shadow-inner italic font-black">
+              <input autoFocus type="number" placeholder="0" value={wcAmount} onChange={e=>setWcAmount(e.target.value)} className="w-full bg-transparent text-white text-7xl font-mono font-black text-center outline-none border-b border-slate-900 focus:border-cyan-500 transition-all pb-2 shadow-inner leading-none italic font-black shadow-inner" />
+              <span className="text-4xl text-slate-800 italic leading-none uppercase italic italic font-black shadow-inner">Л</span>
             </div>
-            <div className="flex flex-col gap-3 pt-4 italic font-black leading-none">
-                <button onClick={()=>handleAqAction('wc', {id: waterChangeModal})} className="w-full py-6 bg-cyan-600 text-white rounded-2xl font-black uppercase text-[11px] tracking-widest active:scale-95 shadow-xl shadow-cyan-900/30 ring-1 ring-cyan-400/20 italic leading-none">Записать данные</button>
-                <button onClick={()=>setWaterChangeModal(null)} className="w-full py-4 text-slate-700 font-black uppercase text-[9px] tracking-widest italic opacity-40 leading-none">Закрыть</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {editingAqId && (
-        <div className="modal-overlay italic font-black leading-none">
-          <div className="modal-card text-center !border-red-900/30 shadow-red-950/20 ring-1 ring-red-900/10">
-            <Trash2 size={60} className="mx-auto text-red-500 mb-8 opacity-20"/>
-            <h2 className="text-2xl text-white uppercase italic leading-none mb-8 font-black">Удалить ядро?</h2>
-            <p className="text-slate-600 text-[10px] font-black uppercase mb-12 tracking-widest leading-relaxed opacity-40 px-4">Все биологические данные и логи будут стерты из облака.</p>
-            <div className="flex gap-4 italic font-black">
-              <button onClick={()=>setEditingAqId(null)} className="flex-1 py-4 bg-slate-800 rounded-xl text-white font-bold text-[9px] uppercase italic">Отмена</button>
-              <button onClick={()=>handleAqAction('delete', editingAqId)} className="flex-1 py-4 bg-red-600 text-white rounded-xl font-bold text-[9px] uppercase shadow-lg shadow-red-900/40 active:scale-95 italic">Стереть</button>
+            <div className="flex flex-col gap-4 pt-6 italic font-black leading-none italic shadow-inner font-black italic shadow-inner">
+                <button onClick={()=>handleAqAction('wc', {id: waterChangeModal})} className="w-full py-6 bg-cyan-600 text-white rounded-2xl font-black uppercase text-[12px] tracking-[0.2em] shadow-2xl active:scale-95 leading-none shadow-inner border-none cursor-pointer italic font-black shadow-inner">Логировать</button>
+                <button onClick={()=>setWaterChangeModal(null)} className="w-full py-4 text-slate-700 font-black uppercase text-[9px] tracking-widest italic opacity-30 leading-none italic leading-none shadow-inner border-none cursor-pointer italic font-black shadow-inner">Закрыть</button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Добавление жителя */}
+      {infoModal && (
+          <div className="modal-overlay animate-fadeIn italic font-black leading-none shadow-inner">
+              <div className="modal-card relative italic font-black leading-none shadow-cyan-950/30 shadow-inner font-black italic font-black italic font-black italic leading-none italic font-black shadow-inner">
+                  <div className="flex items-center gap-4 mb-10 leading-none italic font-black leading-none shadow-inner italic font-black shadow-inner">
+                      <div className="w-1 h-12 bg-cyan-500 rounded-full shadow-[0_0_20px_#06b6d4] italic font-black shadow-inner"></div>
+                      <h3 className="text-3xl font-black text-white uppercase tracking-tighter leading-none italic font-black italic leading-none italic font-black shadow-inner">{IDEAL_PARAMS[infoModal].name}</h3>
+                  </div>
+                  <div className="bg-slate-950 p-10 rounded-[3rem] border border-white/5 mb-10 shadow-inner leading-none italic font-black leading-none italic font-black font-black italic leading-none italic font-black shadow-inner">
+                      <p className="text-sm text-slate-300 leading-relaxed italic font-bold opacity-90 leading-relaxed italic font-black shadow-inner">{IDEAL_PARAMS[infoModal].desc}</p>
+                  </div>
+                  <div className="flex justify-between items-center px-4 leading-none italic font-black leading-none italic font-black italic leading-none font-black italic leading-none italic font-black shadow-inner">
+                      <span className="text-[10px] text-cyan-400/50 uppercase font-black tracking-[0.1em] italic leading-none uppercase italic font-black font-black italic leading-none italic font-black shadow-inner">Идеал: {IDEAL_PARAMS[infoModal].min}-{IDEAL_PARAMS[infoModal].max} {IDEAL_PARAMS[infoModal].unit}</span>
+                      <button onClick={() => setInfoModal(null)} className="py-5 px-12 bg-cyan-600 rounded-2xl font-black uppercase active:scale-90 transition-all leading-none shadow-xl shadow-cyan-900/40 text-white text-[9px] italic leading-none uppercase italic font-black italic border-none cursor-pointer shadow-inner">Понял</button>
+                  </div>
+              </div>
+          </div>
+      )}
+
       {isAddingCoral && (
-          <div className="modal-overlay animate-fadeIn italic font-black leading-none">
-              <div className="modal-card italic font-black leading-none">
-                  <h2 className="text-xl font-black text-white uppercase italic mb-8 underline decoration-cyan-500 decoration-4 underline-offset-8">Новый образец</h2>
-                  <div className="space-y-6 italic font-black leading-none">
-                      <div className="space-y-2 italic font-black leading-none"><label className="text-[8px] text-slate-700 uppercase px-2 italic font-black">Название вида</label><input placeholder="Acropora Sp." className="auth-input italic shadow-inner !p-4 !text-base font-black leading-none" value={newCoral.name} onChange={e=>setNewCoral({...newCoral, name: e.target.value})} /></div>
-                      <div className="space-y-2 italic font-black leading-none">
-                          <label className="text-[8px] text-slate-700 uppercase px-2 italic font-black">Тип коралла</label>
-                          <div className="grid grid-cols-3 gap-2 leading-none font-bold">
-                              {['sps', 'lps', 'soft'].map(t => (<button key={t} onClick={()=>setNewCoral({...newCoral, type: t})} className={`p-3 rounded-xl border text-[9px] font-bold uppercase transition-all ${newCoral.type === t ? 'bg-cyan-600 border-cyan-400 text-white shadow-lg' : 'bg-slate-950 border-white/5 text-slate-700'}`}>{t}</button>))}
+          <div className="modal-overlay animate-fadeIn italic font-black leading-none shadow-inner">
+              <div className="modal-card italic font-black shadow-cyan-950/20 leading-none shadow-inner font-black italic font-black italic font-black italic leading-none italic font-black shadow-inner">
+                  <h2 className="text-2xl font-black text-white uppercase italic mb-10 underline decoration-cyan-500 decoration-4 underline-offset-8 tracking-tighter leading-none italic font-black italic leading-none italic font-black shadow-inner">Новый житель</h2>
+                  <div className="space-y-8 leading-none italic font-black leading-none shadow-inner font-black italic font-black italic font-black italic leading-none italic font-black shadow-inner">
+                      <div className="space-y-3 leading-none italic font-black leading-none shadow-inner font-black italic font-black italic font-black italic leading-none font-black italic leading-none italic font-black shadow-inner"><label className="text-[9px] text-slate-700 uppercase px-4 italic opacity-40 leading-none font-black italic font-black italic font-black italic leading-none italic font-black shadow-inner">Вид (напр. Acropora)</label><input placeholder="Scientific name" className="auth-input italic shadow-inner !p-5 !text-lg font-black leading-none italic font-black shadow-inner border-cyan-500/10 font-black italic leading-none italic font-black shadow-inner" value={newCoral.name} onChange={e=>setNewCoral({...newCoral, name: e.target.value})} /></div>
+                      <div className="space-y-4 leading-none italic font-black leading-none shadow-inner font-black italic font-black italic font-black italic leading-none italic font-black shadow-inner">
+                          <label className="text-[9px] text-slate-700 uppercase px-4 italic opacity-40 leading-none shadow-inner font-black italic font-black italic font-black italic leading-none italic font-black shadow-inner">Классификация</label>
+                          <div className="grid grid-cols-3 gap-3 leading-none font-black italic shadow-inner font-black italic font-black italic font-black italic leading-none italic font-black shadow-inner">
+                              {['sps', 'lps', 'soft'].map(t => (<button key={t} onClick={()=>setNewCoral({...newCoral, type: t})} className={`p-4 rounded-3xl border-2 text-[9px] font-black uppercase transition-all duration-300 leading-none italic ${newCoral.type === t ? 'bg-cyan-600 border-cyan-400 text-white shadow-xl scale-110 shadow-cyan-900/40 shadow-inner' : 'bg-slate-950 border-white/5 text-slate-800 opacity-40 shadow-inner'}`}>{t}</button>))}
                           </div>
                       </div>
-                      <div className="flex flex-col gap-3 pt-6 leading-none italic font-black">
-                          <button onClick={handleAddCoral} className="w-full py-4 bg-cyan-600 text-white rounded-xl font-bold uppercase text-[10px] tracking-widest active:scale-95 shadow-xl shadow-cyan-900/40 italic">Регистрация</button>
-                          <button onClick={()=>setIsAddingCoral(false)} className="w-full py-3 text-slate-700 font-bold uppercase text-[9px] italic opacity-40">Отмена</button>
+                      <div className="flex flex-col gap-4 pt-10 leading-none italic font-black leading-none shadow-inner font-black italic font-black italic font-black italic leading-none italic font-black shadow-inner">
+                          <button onClick={handleAddCoral} className="w-full py-5 bg-cyan-600 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl shadow-cyan-900/40 active:scale-95 transition-all leading-none italic font-black font-black italic leading-none border-none cursor-pointer shadow-inner">Регистрация</button>
+                          <button onClick={()=>setIsAddingCoral(false)} className="w-full py-3 text-slate-700 font-black uppercase text-[9px] italic opacity-30 leading-none italic font-black shadow-inner font-black italic leading-none border-none cursor-pointer shadow-inner">Отмена</button>
                       </div>
                   </div>
               </div>
