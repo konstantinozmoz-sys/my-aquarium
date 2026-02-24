@@ -32,7 +32,7 @@ const firebaseConfig = {
  * КОНФИГУРАЦИЯ БЕЗОПАСНОСТИ
  * Используем ваш Cloudflare Worker как прокси.
  */
-const PROXY_URL = "https://my-aquarium.konstantin-ozmoz.workers.dev"; 
+const PROXY_URL = "/api/openai-proxy"; 
 
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
