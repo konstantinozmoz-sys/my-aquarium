@@ -29,10 +29,9 @@ const firebaseConfig = {
 };
 
 /**
- * КОНФИГУРАЦИЯ БЕЗОПАСНОСТИ (CLOUDFLARE)
- * Используем ваш Cloudflare Worker как защитный прокси.
+ * КОНФИГУРАЦИЯ API.
  */
-const API_ENDPOINT = "/api/openai-proxy"; 
+const API_ENDPOINT = "/api/openai-proxy";
 
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
@@ -42,10 +41,10 @@ const db = getFirestore(app);
 const IDEAL_PARAMS = {
   salinity: { min: 33, max: 36, unit: 'ppt', name: 'Соленость', desc: 'Оптимально — 35 ppt. Стабильность критична для осмоса кораллов.' },
   kh: { min: 7.5, max: 11.0, unit: 'dKH', name: 'Щелочность (KH)', desc: 'Буферная емкость воды. Главный параметр для роста скелетов.' },
-  ca: { min: 400, max: 480, unit: 'ppm', name: 'Кальций (Ca)', desc: 'Строительный материал для рифа. Должен быть в балансе с щелочностью.' },
+  ca: { min: 400, max: 480, unit: 'ppm', name: 'Кальций (Ca)', desc: 'Строительный материал для рифа. Должен быть в балансе с KH.' },
   mg: { min: 1250, max: 1400, unit: 'ppm', name: 'Магний (Mg)', desc: 'Удерживает кальций и карбонаты в растворенном виде.' },
   no3: { min: 2, max: 15, unit: 'ppm', name: 'Нитраты (NO3)', desc: 'Питание для кораллов. Высокий уровень вызывает стресс.' },
-  po4: { min: 0.03, max: 0.1, unit: 'ppm', name: 'Фосфаты (PO4)', desc: 'Важны для энергии, но избыток блокирует рост кораллов.' },
+  po4: { min: 0.03, max: 0.1, unit: 'ppm', name: 'Фосфаты (PO4)', desc: 'Важны для энергии, но избыток блокирует рост.' },
   temp: { min: 24, max: 27, unit: '°C', name: 'Температура', desc: 'Риф любит прохладу. Скачки выше 28°C опасны.' }
 };
 
@@ -71,11 +70,13 @@ export default function App() {
   const [selectedAqId, setSelectedAqId] = useState(null);
   const [livestock, setLivestock] = useState([]);
   
+  // Auth
   const [authMode, setAuthMode] = useState('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [fullName, setFullName] = useState('');
 
+  // UI
   const [isCreating, setIsCreating] = useState(false);
   const [newAqData, setNewAqData] = useState({ name: '', volume: '100' });
   const [waterChangeModal, setWaterChangeModal] = useState(null);
@@ -89,7 +90,7 @@ export default function App() {
   // OpenAI Vision API
   const callVision = async (imageData, mimeType, prompt) => {
     try {
-      const response = await fetch(PROXY_URL, {
+      const response = await fetch(API_ENDPOINT, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -100,10 +101,11 @@ export default function App() {
       });
       if (!response.ok) throw new Error(`HTTP Error: ${response.status}`);
       const data = await response.json();
-      return data.choices?.[0]?.message?.content || "Не удалось получить результат.";
-    } catch (e) { return `Ошибка связи: ${e.message}. Проверьте Cloudflare Worker.`; }
+      return data.choices?.[0]?.message?.content || "ИИ не вернул результат.";
+    } catch (e) { return `Ошибка: ${e.message}`; }
   };
 
+  // Sync Firebase
   useEffect(() => {
     return onAuthStateChanged(auth, async (u) => {
       setUser(u);
@@ -199,7 +201,7 @@ export default function App() {
               <MapPin size={10}/> {userData?.personalInfo?.city || 'СЕКТОР-АВТОНОМНО'}
             </p>
           </div>
-          <div className="text-[10px] text-slate-800 opacity-40 font-bold">V 4.3</div>
+          <div className="text-[10px] text-slate-800 opacity-40 font-bold italic">V 4.3</div>
         </header>
 
         <div className="space-y-6 pb-20">
@@ -216,11 +218,11 @@ export default function App() {
               </div>
               
               <div className="grid grid-cols-2 gap-4 relative z-10 font-black italic">
-                <div className="stat-pill shadow-inner leading-none">
+                <div className="stat-pill shadow-inner leading-none italic font-black">
                   <p className="stat-pill-label">Щелочность</p>
                   <p className="stat-pill-num leading-none mt-2 font-mono">{aq.params?.kh || '0'}</p>
                 </div>
-                <div className="stat-pill shadow-inner leading-none">
+                <div className="stat-pill shadow-inner leading-none italic font-black">
                   <p className="stat-pill-label">Соленость</p>
                   <p className="stat-pill-num leading-none mt-2 font-mono">{aq.params?.salinity || '0'}</p>
                 </div>
@@ -231,7 +233,7 @@ export default function App() {
                  <span className="text-[8px] text-slate-800 uppercase italic font-black leading-none">Подмена: {new Date(aq.lastWaterChange).toLocaleDateString()}</span>
               </div>
 
-              <button onClick={() => setWaterChangeModal(aq.id)} className="action-btn-main mt-8 shadow-xl shadow-cyan-950/40 uppercase italic font-black leading-none italic font-black">
+              <button onClick={() => setWaterChangeModal(aq.id)} className="action-btn-main mt-8 shadow-xl shadow-cyan-950/40 uppercase italic font-black leading-none">
                 Записать обслуживание
               </button>
             </div>
@@ -267,7 +269,7 @@ export default function App() {
     };
 
     return (
-      <div className="view-container animate-fadeIn font-black italic leading-none font-black italic font-black">
+      <div className="view-container animate-fadeIn font-black italic leading-none font-black">
         <h2 className="text-xl font-black text-white uppercase mb-8 leading-none italic font-black">Лаборатория</h2>
         <input type="file" id="lab-scan" className="hidden" onChange={scan} />
         <label htmlFor="lab-scan" className={`upload-box shadow-cyan-950/20 ${busy ? 'busy' : ''}`}>
@@ -319,18 +321,18 @@ export default function App() {
     }, [v, selectedReagent, tool]);
 
     if (!tool) return (
-      <div className="view-container animate-fadeIn italic font-black leading-none italic font-black italic font-black">
-        <h2 className="text-xl font-bold text-white uppercase mb-10 tracking-tighter leading-none italic font-black italic font-black">Инструменты</h2>
-        <div className="grid grid-cols-2 gap-5 leading-none font-black italic font-black">
+      <div className="view-container animate-fadeIn italic font-black leading-none italic font-black">
+        <h2 className="text-xl font-bold text-white uppercase mb-10 tracking-tighter leading-none italic font-black">Инструменты</h2>
+        <div className="grid grid-cols-2 gap-5 leading-none font-black italic">
           {[
             { id:'kh', n:'KH Буфер', i:Activity, c:'text-purple-400' },
             { id:'ca', n:'Кальций', i:Beaker, c:'text-blue-400' },
             { id:'bal', n:'Баллинг', i:Droplets, c:'text-yellow-400' },
             { id:'vol', n:'Объем', i:Box, c:'text-cyan-400' }
           ].map(i => (
-            <button key={i.id} onClick={()=>setTool(i.id)} className="premium-card !p-8 flex flex-col items-center gap-4 active:scale-95 transition-all shadow-xl leading-none italic font-black italic font-black shadow-inner">
-              <div className="p-4 bg-slate-950 rounded-2xl shadow-inner leading-none italic font-black italic font-black"><i.i className={i.c} size={28} /></div>
-              <span className="text-[10px] font-black uppercase text-slate-300 tracking-widest leading-none italic font-black italic font-black">{i.n}</span>
+            <button key={i.id} onClick={()=>setTool(i.id)} className="premium-card !p-8 flex flex-col items-center gap-4 active:scale-95 transition-all shadow-xl leading-none italic font-black">
+              <div className="p-4 bg-slate-950 rounded-2xl shadow-inner leading-none italic font-black"><i.i className={i.c} size={28} /></div>
+              <span className="text-[10px] font-black uppercase text-slate-300 tracking-widest leading-none italic font-black">{i.n}</span>
             </button>
           ))}
         </div>
@@ -338,21 +340,21 @@ export default function App() {
     );
 
     return (
-      <div className="view-container animate-fadeIn italic font-black leading-none font-black leading-none italic font-black italic font-black">
-        <button onClick={()=>setTool(null)} className="flex items-center gap-2 text-cyan-400 text-[10px] uppercase font-bold mb-8 active:scale-90 transition-all leading-none italic font-black italic font-black"><ArrowLeft size={16}/> Назад</button>
-        <div className="premium-card !p-8 space-y-10 shadow-2xl leading-none font-black italic shadow-inner font-black italic font-black">
+      <div className="view-container animate-fadeIn italic font-black leading-none font-black leading-none italic font-black">
+        <button onClick={()=>setTool(null)} className="flex items-center gap-2 text-cyan-400 text-[10px] uppercase font-bold mb-8 active:scale-90 transition-all leading-none italic font-black"><ArrowLeft size={16}/> Назад</button>
+        <div className="premium-card !p-8 space-y-10 shadow-2xl leading-none font-black italic shadow-inner font-black">
           <div className="space-y-6 italic font-black leading-none italic font-black">
-            <label className="text-[10px] text-slate-600 uppercase font-black tracking-widest px-4 leading-none italic font-black font-black font-black">Объем системы (Л)</label>
+            <label className="text-[10px] text-slate-600 uppercase font-black tracking-widest px-4 leading-none italic font-black font-black">Объем системы (Л)</label>
             <input type="number" value={v.v} onChange={e => setV({...v, v: e.target.value})} className="w-full bg-[#020617] text-center text-5xl font-mono font-black text-white outline-none border-b-2 border-slate-900 focus:border-cyan-500 transition-all pb-2 shadow-inner leading-none italic font-black italic font-black" placeholder="000" />
             {(tool === 'kh' || tool === 'ca') && (
-               <div className="space-y-6 italic leading-none font-black font-black italic leading-none italic font-black">
+               <div className="space-y-6 italic leading-none font-black font-black italic leading-none">
                  <div className="font-black italic">
-                    <label className="text-[10px] text-slate-700 uppercase font-black px-4 italic mb-2 block leading-none font-black font-black font-black">Выберите бренд</label>
-                    <select value={brand} onChange={e => setBrand(e.target.value)} className="w-full bg-[#020617] border border-white/5 p-4 rounded-xl text-white font-black uppercase text-xs italic outline-none shadow-xl leading-none italic font-black italic font-black">
+                    <label className="text-[10px] text-slate-700 uppercase font-black px-4 italic mb-2 block leading-none font-black font-black">Марка средства</label>
+                    <select value={brand} onChange={e => setBrand(e.target.value)} className="w-full bg-[#020617] border border-white/5 p-4 rounded-xl text-white font-black uppercase text-xs italic outline-none shadow-xl leading-none italic font-black">
                         {(tool === 'kh' ? REAGENTS.kh : REAGENTS.ca).map(r => <option key={r.brand} value={r.brand}>{r.brand}</option>)}
                     </select>
                  </div>
-                 <div className="grid grid-cols-2 gap-4 italic font-black leading-none font-black">
+                 <div className="grid grid-cols-2 gap-4 italic font-black leading-none">
                    <div className="bg-[#020617] p-5 rounded-2xl border border-white/5 text-center shadow-inner leading-none italic font-black font-black italic leading-none font-black italic font-black">
                      <label className="text-[8px] text-slate-800 uppercase font-black mb-2 block leading-none font-black italic italic font-black">Было</label>
                      <input type="number" value={v.c} onChange={e => setV({...v, c: e.target.value})} className="bg-transparent text-white text-2xl font-black w-full text-center outline-none italic leading-none font-black italic font-black italic font-black" />
@@ -367,7 +369,7 @@ export default function App() {
           </div>
           <div className="bg-cyan-900/10 p-10 rounded-3xl border border-cyan-500/20 text-center shadow-inner relative overflow-hidden leading-none italic font-black leading-none font-black italic leading-none font-black shadow-inner">
             <Calculator className="absolute -right-4 -bottom-4 opacity-5 rotate-12 italic font-black shadow-inner italic font-black" size={150}/>
-            <p className="text-[9px] text-cyan-400 font-bold uppercase mb-4 tracking-widest italic opacity-60 leading-none font-black italic italic font-black">Схема поднятия</p>
+            <p className="text-[9px] text-cyan-400 font-bold uppercase mb-4 tracking-widest italic opacity-60 leading-none font-black italic font-black">Схема поднятия</p>
             <div className="text-6xl font-black text-white italic tracking-tighter leading-none relative z-10 mb-4 font-black italic leading-none font-black italic font-black shadow-inner">
               {resCalc.total} <span className="text-2xl text-cyan-500/30 ml-1 font-normal not-italic uppercase tracking-widest leading-none italic font-black italic font-black">г</span>
             </div>
@@ -384,12 +386,12 @@ export default function App() {
   const Livestock = () => {
     const list = livestock.filter(l => l.aqId === selectedAqId);
     return (
-      <div className="view-container animate-fadeIn italic font-black leading-none italic font-black italic font-black leading-none italic font-black italic font-black">
+      <div className="view-container animate-fadeIn italic font-black leading-none italic font-black italic font-black leading-none italic font-black pb-40">
         <div className="flex justify-between items-center mb-10 leading-none italic font-black italic italic font-black">
           <h2 className="text-xl font-bold text-white uppercase italic tracking-tighter leading-none italic font-black italic font-black">Био-сфера</h2>
           <button onClick={() => setIsAddingCoral(true)} className="p-3 bg-cyan-600 rounded-2xl text-white shadow-lg active:scale-90 transition-all leading-none shadow-cyan-950/40 italic font-black italic font-black shadow-inner leading-none"><Plus size={24}/></button>
         </div>
-        <div className="space-y-4 font-black italic leading-none italic font-black pb-40">
+        <div className="space-y-4 font-black italic leading-none italic font-black">
            {list.length === 0 ? (
                <div className="py-24 text-center opacity-10 leading-none italic font-black leading-none italic font-black italic font-black italic font-black"><Fish size={80} className="mx-auto mb-4 italic font-black font-black"/><p className="text-[10px] uppercase font-black italic leading-none font-black italic font-black italic font-black italic">Сектор пуст</p></div>
            ) : list.map(item => (
@@ -398,7 +400,7 @@ export default function App() {
                       <div className={`w-2.5 h-2.5 rounded-full ${item.type === 'sps' ? 'bg-purple-500 shadow-[0_0_15px_purple]' : item.type === 'lps' ? 'bg-emerald-500 shadow-[0_0_15px_#10b981]' : 'bg-yellow-500'} italic font-black italic font-black`}></div>
                       <div className="leading-none italic font-black font-black italic font-black italic font-black italic font-black">
                           <h3 className="text-white font-black text-sm uppercase italic leading-none italic font-black font-black italic font-black italic font-black">{item.name}</h3>
-                          <p className="text-[9px] text-slate-700 uppercase mt-1.5 font-black leading-none italic opacity-40 italic font-black italic font-black italic font-black italic">{CORAL_TYPES[item.type]?.label}</p>
+                          <p className="text-[9px] text-slate-700 uppercase mt-1.5 font-black leading-none italic opacity-40 italic font-black italic font-black italic font-black italic font-black">{CORAL_TYPES[item.type]?.label}</p>
                       </div>
                   </div>
                   <button onClick={async () => {
@@ -423,7 +425,7 @@ export default function App() {
       try {
         const reader = new FileReader();
         const base64 = await new Promise(r => { reader.onload = () => r(reader.result.split(',')[1]); reader.readAsDataURL(f); });
-        const txt = await callVision(base64, f.type, "Identify diseases in this aquarium photo (fish or coral). Answer briefly in Russian.");
+        const txt = await callVision(base64, f.type, "Analyze photo for diseases. Briefly in Russian.");
         setRes(txt);
       } catch (err) { setRes(`Ошибка: ${err.message}`); }
       setBusy(false);
@@ -432,7 +434,7 @@ export default function App() {
     return (
       <div className="view-container animate-fadeIn font-black italic leading-none italic font-black leading-none italic font-black italic font-black leading-none italic font-black pb-40">
         <h2 className="text-xl font-black uppercase text-white mb-10 italic underline decoration-emerald-500 decoration-4 underline-offset-8 tracking-tighter font-black font-black">ИИ Доктор</h2>
-        <div className="bg-emerald-950/5 p-10 rounded-[2.5rem] border border-emerald-500/20 text-center relative overflow-hidden mb-10 shadow-2xl shadow-emerald-950/40 italic font-black font-black italic font-black shadow-inner">
+        <div className="bg-emerald-950/5 p-10 rounded-[2.5rem] border border-emerald-500/20 text-center relative overflow-hidden mb-10 shadow-2xl shadow-emerald-950/40 italic font-black font-black italic font-black">
           <Stethoscope className="absolute -right-8 -bottom-8 opacity-5 rotate-12 text-emerald-500 shadow-xl italic font-black font-black italic font-black shadow-inner" size={200}/>
           <p className="text-[9px] text-emerald-500/60 uppercase font-black tracking-widest mb-10 z-10 relative italic font-black italic font-black italic font-black italic font-black leading-relaxed italic font-black">Биометрический анализ патогенов обитателей рифа</p>
           <input type="file" id="ai-doc" className="hidden" onChange={handleDoc} />
@@ -442,7 +444,7 @@ export default function App() {
           </label>
         </div>
         {img && <div className="rounded-[2.5rem] overflow-hidden border-8 border-slate-950 shadow-2xl h-80 mb-10 italic leading-none shadow-inner italic font-black leading-none shadow-inner italic font-black leading-none italic font-black shadow-inner italic font-black shadow-inner"><img src={img} className="w-full h-full object-cover leading-none italic font-black leading-none shadow-inner italic font-black leading-none italic font-black shadow-inner" /></div>}
-        {res && <div className="bg-slate-900/60 p-8 rounded-3xl border border-emerald-500/20 shadow-xl animate-slideUp relative italic leading-none font-black shadow-inner font-black italic font-black italic font-black italic font-black">
+        {res && <div className="bg-slate-900/60 p-8 rounded-3xl border border-emerald-500/20 shadow-xl animate-slideUp relative italic leading-none font-black shadow-inner font-black italic font-black italic font-black italic font-black shadow-inner">
             <div className="absolute top-0 left-10 -translate-y-1/2 bg-emerald-500 text-slate-950 px-8 py-2 rounded-full font-black text-[9px] uppercase italic shadow-lg italic font-black italic font-black italic font-black">Вердикт ИИ</div>
           <p className="text-slate-200 text-xs font-medium leading-relaxed italic opacity-90 leading-loose italic font-black leading-none italic font-black italic font-black leading-loose italic font-black shadow-inner">{res}</p>
         </div>}
@@ -568,7 +570,7 @@ export default function App() {
               <div className="space-y-4 leading-none italic shadow-inner italic font-black shadow-inner italic font-black"><label className="text-[10px] text-slate-700 uppercase font-black px-2 italic shadow-inner leading-none italic font-black font-black shadow-inner font-black">Объем воды (Л)</label><input type="number" placeholder="100" className="auth-input italic shadow-inner !p-5 !text-4xl font-black leading-none border-cyan-500/10 shadow-inner font-black italic font-black shadow-inner font-black" value={newAqData.volume} onChange={e=>setNewAqData({...newAqData, volume: e.target.value})} /></div>
               <div className="flex flex-col gap-3 pt-6 leading-none italic font-black shadow-inner font-black italic leading-none shadow-inner font-black">
                   <button onClick={()=>handleAqAction('add', newAqData)} className="w-full py-5 bg-cyan-600 text-white rounded-2xl font-black uppercase text-[11px] tracking-widest shadow-xl active:scale-95 transition-all shadow-inner border-none cursor-pointer leading-none font-black italic italic shadow-inner">Активировать</button>
-                  <button onClick={()=>setIsCreating(false)} className="w-full py-4 text-slate-700 font-black uppercase text-[9px] tracking-widest italic opacity-40 leading-none shadow-inner border-none cursor-pointer leading-none font-black italic italic font-black shadow-inner">Отмена</button>
+                  <button onClick={()=>setIsCreating(false)} className="w-full py-4 text-slate-700 font-black uppercase text-[9px] tracking-widest italic opacity-40 leading-none shadow-inner border-none cursor-pointer leading-none font-black italic italic font-black">Отмена</button>
               </div>
             </div>
           </div>
@@ -597,7 +599,7 @@ export default function App() {
 
       {waterChangeModal && (
         <div className="modal-overlay animate-fadeIn italic font-black leading-none shadow-inner italic font-black italic font-black shadow-inner font-black">
-          <div className="modal-card text-center italic font-black leading-none shadow-cyan-950/20 shadow-inner italic font-black shadow-inner italic font-black">
+          <div className="modal-card text-center italic font-black leading-none shadow-cyan-950/20 shadow-inner italic font-black shadow-inner italic font-black italic font-black">
             <h2 className="text-4xl text-white uppercase italic mb-12 font-black underline decoration-cyan-500 decoration-4 underline-offset-8 italic leading-none italic font-black shadow-inner italic font-black leading-none italic font-black italic font-black shadow-inner">Refresh</h2>
             <div className="my-12 flex items-center justify-center gap-4 leading-none shadow-inner italic font-black italic font-black italic font-black leading-none shadow-inner font-black">
               <input autoFocus type="number" placeholder="0" value={wcAmount} onChange={e=>setWcAmount(e.target.value)} className="w-full bg-[#020617] text-white text-7xl font-mono font-black text-center outline-none border-b border-slate-900 focus:border-cyan-500 transition-all pb-2 shadow-inner leading-none italic font-black shadow-inner italic font-black italic font-black leading-none shadow-inner font-black" />
@@ -622,7 +624,7 @@ export default function App() {
                       <p className="text-sm text-slate-300 leading-relaxed italic font-bold opacity-90 leading-relaxed italic font-black shadow-inner font-black italic font-black italic font-black leading-relaxed italic font-black shadow-inner">{IDEAL_PARAMS[infoModal].desc}</p>
                   </div>
                   <div className="flex justify-between items-center px-4 leading-none italic font-black leading-none italic font-black italic leading-none font-black italic leading-none italic font-black shadow-inner font-black italic font-black italic leading-none font-black italic shadow-inner font-black italic font-black leading-none font-black shadow-inner">
-                      <span className="text-[10px] text-cyan-400/50 uppercase font-black tracking-[0.1em] italic leading-none uppercase italic font-black font-black italic leading-none italic font-black shadow-inner font-black italic font-black italic font-black italic shadow-inner font-black italic font-black leading-none shadow-inner">Идеал: {IDEAL_PARAMS[infoModal].min}-{IDEAL_PARAMS[infoModal].max} {IDEAL_PARAMS[infoModal].unit}</span>
+                      <span className="text-[10px] text-cyan-400/50 uppercase font-black tracking-[0.1em] italic leading-none uppercase italic font-black font-black italic leading-none italic font-black shadow-inner font-black italic font-black italic font-black italic shadow-inner font-black italic font-black leading-none font-black shadow-inner">Идеал: {IDEAL_PARAMS[infoModal].min}-{IDEAL_PARAMS[infoModal].max} {IDEAL_PARAMS[infoModal].unit}</span>
                       <button onClick={() => setInfoModal(null)} className="py-5 px-12 bg-cyan-600 rounded-2xl font-black uppercase active:scale-90 transition-all leading-none shadow-xl shadow-cyan-900/40 text-white text-[9px] italic leading-none uppercase italic font-black italic border-none cursor-pointer shadow-inner font-black italic font-black font-black italic leading-none font-black shadow-inner">Понял</button>
                   </div>
               </div>
@@ -633,7 +635,7 @@ export default function App() {
           <div className="modal-overlay animate-fadeIn italic font-black leading-none shadow-inner italic font-black font-black italic leading-none shadow-inner font-black">
               <div className="modal-card italic font-black shadow-cyan-950/20 leading-none shadow-inner font-black italic font-black italic font-black italic leading-none italic font-black shadow-inner font-black italic font-black italic leading-none font-black italic font-black italic font-black leading-none font-black shadow-inner">
                   <h2 className="text-2xl font-black text-white uppercase italic mb-10 underline decoration-cyan-500 decoration-4 underline-offset-8 tracking-tighter leading-none italic font-black italic leading-none italic font-black shadow-inner font-black italic font-black italic leading-none font-black italic font-black italic font-black leading-none font-black shadow-inner">Новый житель</h2>
-                  <div className="space-y-8 leading-none italic font-black leading-none shadow-inner font-black italic font-black italic font-black italic leading-none italic font-black shadow-inner font-black italic font-black italic leading-none font-black italic shadow-inner leading-none font-black italic leading-none italic font-black shadow-inner font-black italic leading-none shadow-inner">
+                  <div className="space-y-8 leading-none italic font-black leading-none shadow-inner font-black italic font-black italic font-black italic leading-none italic font-black shadow-inner font-black italic font-black italic leading-none font-black italic shadow-inner leading-none font-black italic leading-none italic font-black shadow-inner font-black italic leading-none font-black shadow-inner px-2">
                       <div className="space-y-3 leading-none italic font-black leading-none shadow-inner font-black italic font-black italic font-black italic leading-none font-black italic leading-none italic font-black shadow-inner font-black italic font-black italic leading-none font-black italic shadow-inner leading-none font-black italic leading-none italic font-black shadow-inner font-black italic leading-none italic font-black font-black shadow-inner"><label className="text-[9px] text-slate-700 uppercase px-4 italic opacity-40 leading-none font-black italic font-black italic font-black italic leading-none italic font-black shadow-inner font-black italic font-black italic font-black italic font-black italic font-black italic leading-none italic font-black font-black italic leading-none shadow-inner">Вид (напр. Acropora)</label><input placeholder="Scientific name" className="auth-input italic shadow-inner !p-5 !text-lg font-black leading-none italic font-black shadow-inner border-cyan-500/10 font-black italic leading-none italic font-black shadow-inner font-black italic font-black italic leading-none font-black italic font-black italic leading-none font-black italic font-black font-black italic leading-none font-black shadow-inner" value={newCoral.name} onChange={e=>setNewCoral({...newCoral, name: e.target.value})} /></div>
                       <div className="space-y-4 leading-none italic font-black leading-none shadow-inner font-black italic font-black italic font-black italic leading-none italic font-black shadow-inner font-black italic font-black italic leading-none font-black italic shadow-inner font-black italic leading-none font-black shadow-inner px-2">
                           <label className="text-[9px] text-slate-700 uppercase px-4 italic opacity-40 leading-none shadow-inner font-black italic font-black italic font-black italic leading-none italic font-black shadow-inner font-black italic font-black italic font-black italic leading-none font-black italic font-black italic leading-none font-black italic font-black italic leading-none font-black shadow-inner">Классификация</label>
@@ -643,7 +645,7 @@ export default function App() {
                       </div>
                       <div className="flex flex-col gap-4 pt-10 leading-none italic font-black leading-none shadow-inner font-black italic font-black italic font-black italic leading-none italic font-black shadow-inner font-black italic font-black italic font-black italic font-black italic font-black italic shadow-inner leading-none font-black italic font-black italic leading-none font-black italic font-black italic leading-none font-black shadow-inner">
                           <button onClick={handleAddCoral} className="w-full py-5 bg-cyan-600 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl shadow-cyan-900/40 active:scale-95 transition-all leading-none italic font-black font-black italic leading-none border-none cursor-pointer shadow-inner font-black italic font-black">Регистрация</button>
-                          <button onClick={()=>setIsAddingCoral(false)} className="w-full py-3 text-slate-700 font-black uppercase text-[9px] italic opacity-30 leading-none italic font-black shadow-inner font-black italic leading-none border-none cursor-pointer shadow-inner font-black italic font-black">Отмена</button>
+                          <button onClick={()=>setIsAddingCoral(false)} className="w-full py-3 text-slate-700 font-black uppercase text-[9px] italic opacity-30 leading-none italic font-black shadow-inner font-black italic leading-none border-none cursor-pointer shadow-inner font-black italic font-black font-black italic leading-none font-black shadow-inner">Отмена</button>
                       </div>
                   </div>
               </div>
