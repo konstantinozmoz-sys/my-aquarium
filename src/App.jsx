@@ -29,10 +29,10 @@ const firebaseConfig = {
 };
 
 /**
- * КОНФИГУРАЦИЯ API (VERCEL).
- * Приложение обращается к серверной функции /api/analyze
+ * КОНФИГУРАЦИЯ БЕЗОПАСНОСТИ (CLOUDFLARE)
+ * Используем ваш Cloudflare Worker как защитный прокси.
  */
-const API_ENDPOINT = "/api/openai-proxy";
+const PROXY_URL = "https://my-aquarium-proxy.konstantin-ozmoz.workers.dev"; 
 
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
@@ -40,13 +40,13 @@ const db = getFirestore(app);
 
 // --- СПРАВОЧНИКИ ---
 const IDEAL_PARAMS = {
-  salinity: { min: 33, max: 36, unit: 'ppt', name: 'Соленость', desc: 'Концентрация соли в воде. Оптимально — 35 ppt.' },
-  kh: { min: 7.5, max: 11.0, unit: 'dKH', name: 'Щелочность (KH)', desc: 'Буферная емкость воды. Главный параметр стабильности рифа.' },
-  ca: { min: 400, max: 480, unit: 'ppm', name: 'Кальций (Ca)', desc: 'Строительный материал для кораллового скелета.' },
-  mg: { min: 1250, max: 1400, unit: 'ppm', name: 'Магний (Mg)', desc: 'Позволяет Кальцию и Карбонатам оставаться в растворе.' },
-  no3: { min: 2, max: 15, unit: 'ppm', name: 'Нитраты (NO3)', desc: 'Питание рифа. Высокий уровень (>20) вызывает стресс.' },
+  salinity: { min: 33, max: 36, unit: 'ppt', name: 'Соленость', desc: 'Оптимально — 35 ppt. Стабильность критична для осмоса кораллов.' },
+  kh: { min: 7.5, max: 11.0, unit: 'dKH', name: 'Щелочность (KH)', desc: 'Буферная емкость воды. Главный параметр для роста скелетов.' },
+  ca: { min: 400, max: 480, unit: 'ppm', name: 'Кальций (Ca)', desc: 'Строительный материал для рифа. Должен быть в балансе с щелочностью.' },
+  mg: { min: 1250, max: 1400, unit: 'ppm', name: 'Магний (Mg)', desc: 'Удерживает кальций и карбонаты в растворенном виде.' },
+  no3: { min: 2, max: 15, unit: 'ppm', name: 'Нитраты (NO3)', desc: 'Питание для кораллов. Высокий уровень вызывает стресс.' },
   po4: { min: 0.03, max: 0.1, unit: 'ppm', name: 'Фосфаты (PO4)', desc: 'Важны для энергии, но избыток блокирует рост кораллов.' },
-  temp: { min: 24, max: 27, unit: '°C', name: 'Температура', desc: 'Риф любит прохладу. Стабильность важнее точного числа.' }
+  temp: { min: 24, max: 27, unit: '°C', name: 'Температура', desc: 'Риф любит прохладу. Скачки выше 28°C опасны.' }
 };
 
 const REAGENTS = {
@@ -86,10 +86,10 @@ export default function App() {
   const [isAddingCoral, setIsAddingCoral] = useState(false);
   const [newCoral, setNewCoral] = useState({ name: '', type: 'sps' });
 
-  // OpenAI Vision API через Vercel
+  // OpenAI Vision API
   const callVision = async (imageData, mimeType, prompt) => {
     try {
-      const response = await fetch(API_ENDPOINT, {
+      const response = await fetch(PROXY_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -98,13 +98,10 @@ export default function App() {
           max_tokens: 800
         })
       });
-      
-      if (!response.ok) throw new Error(`Ошибка сервера: ${response.status}`);
+      if (!response.ok) throw new Error(`HTTP Error: ${response.status}`);
       const data = await response.json();
-      return data.choices?.[0]?.message?.content || "ИИ не вернул результат.";
-    } catch (e) { 
-      return `Ошибка связи с ИИ: ${e.message}. Убедитесь, что функция на Vercel активна.`; 
-    }
+      return data.choices?.[0]?.message?.content || "Не удалось получить результат.";
+    } catch (e) { return `Ошибка связи: ${e.message}. Проверьте Cloudflare Worker.`; }
   };
 
   useEffect(() => {
@@ -160,7 +157,8 @@ export default function App() {
       await updateDoc(userRef, { aquariums: [...aquariums, n] });
       setIsCreating(false);
     } else if (type === 'delete') {
-      await updateDoc(userRef, { aquariums: aquariums.filter(a => a.id !== payload) });
+      const l = aquariums.filter(a => a.id !== payload);
+      await updateDoc(userRef, { aquariums: l });
       setEditingAqId(null);
     } else if (type === 'wc') {
       const list = aquariums.map(a => a.id === payload.id ? { ...a, lastWaterChange: new Date().toISOString() } : a);
@@ -193,10 +191,10 @@ export default function App() {
   const Dashboard = () => {
     const coralsInAq = livestock.filter(l => l.aqId === selectedAqId).length;
     return (
-      <div className="view-container animate-fadeIn italic font-black leading-none">
+      <div className="view-container animate-fadeIn italic font-black">
         <header className="mb-10 flex justify-between items-end leading-none">
           <div>
-            <h1 className="header-title uppercase tracking-tighter italic">Терминал</h1>
+            <h1 className="header-title uppercase tracking-tighter italic font-black">Терминал</h1>
             <p className="header-subtitle flex items-center gap-1 mt-2 font-black italic">
               <MapPin size={10}/> {userData?.personalInfo?.city || 'СЕКТОР-АВТОНОМНО'}
             </p>
@@ -204,27 +202,27 @@ export default function App() {
           <div className="text-[10px] text-slate-800 opacity-40 font-bold">V 4.3</div>
         </header>
 
-        <div className="space-y-6">
+        <div className="space-y-6 pb-20">
           {aquariums.map(aq => (
             <div key={aq.id} className="premium-card">
               <Activity className="card-bg-icon" size={160}/>
               <div className="flex justify-between items-start mb-6 relative z-10 leading-none">
-                <div className="flex items-center gap-3">
+                <div className="flex items-center gap-3 italic">
                   <div className="accent-bar shadow-cyan-400/50"></div>
                   <h2 className="text-lg font-black text-white uppercase italic truncate max-w-[150px] leading-none">{aq.name}</h2>
                   <button onClick={() => setEditingAqId(aq.id)} className="text-slate-800 hover:text-cyan-400 p-1 transition-colors leading-none"><Settings size={18}/></button>
                 </div>
-                <div className="status-badge">СТАБИЛЬНО</div>
+                <div className="status-badge italic font-black">СТАБИЛЬНО</div>
               </div>
               
               <div className="grid grid-cols-2 gap-4 relative z-10 font-black italic">
                 <div className="stat-pill shadow-inner leading-none">
                   <p className="stat-pill-label">Щелочность</p>
-                  <p className="stat-pill-num">{aq.params?.kh || '0'}</p>
+                  <p className="stat-pill-num leading-none mt-2 font-mono">{aq.params?.kh || '0'}</p>
                 </div>
                 <div className="stat-pill shadow-inner leading-none">
                   <p className="stat-pill-label">Соленость</p>
-                  <p className="stat-pill-num">{aq.params?.salinity || '0'}</p>
+                  <p className="stat-pill-num leading-none mt-2 font-mono">{aq.params?.salinity || '0'}</p>
                 </div>
               </div>
 
@@ -241,7 +239,7 @@ export default function App() {
 
           <button onClick={() => setIsCreating(true)} className="w-full py-8 border-2 border-dashed border-slate-900 rounded-[2.5rem] flex flex-col items-center justify-center gap-2 text-slate-700 hover:text-cyan-400 hover:border-cyan-400/30 transition-all active:scale-95 group bg-slate-900/10 shadow-inner leading-none">
             <div className="p-2 bg-slate-900 rounded-full group-hover:bg-cyan-900/20 leading-none"><Plus size={20}/></div>
-            <span className="text-[9px] font-black uppercase tracking-widest italic font-black leading-none">Добавить новую систему</span>
+            <span className="text-[9px] font-black uppercase tracking-widest italic font-black leading-none">Добавить систему</span>
           </button>
         </div>
       </div>
@@ -259,7 +257,7 @@ export default function App() {
       try {
         const reader = new FileReader();
         const base64 = await new Promise(r => { reader.onload = () => r(reader.result.split(',')[1]); reader.readAsDataURL(file); });
-        const resText = await callVision(base64, file.type, "Extract ICP: salinity, kh, ca, mg, no3, po4. Return JSON only.");
+        const resText = await callVision(base64, file.type, "Extract ICP params: salinity, kh, ca, mg, no3, po4. Return JSON only.");
         if (resText && !resText.includes("Ошибка")) {
           setLocal({ ...local, ...JSON.parse(resText.replace(/```json|```/g, '').trim()) });
           alert("✅ Данные распознаны!");
@@ -284,7 +282,7 @@ export default function App() {
             <div key={k} className="premium-card !p-4 flex justify-between items-center shadow-lg bg-slate-900/40 border-none leading-none italic font-black">
               <div className="flex items-center gap-3 font-black">
                 <button onClick={() => setInfoModal(k)} className="text-slate-800 hover:text-cyan-500 active:scale-110 p-1 leading-none italic font-black"><Info size={16}/></button>
-                <div className="leading-tight italic font-black italic">
+                <div className="leading-tight italic font-black italic font-black">
                     <p className="text-slate-100 text-[11px] font-black uppercase leading-none italic font-black">{v.name}</p>
                     <p className="text-[8px] text-slate-700 font-black uppercase mt-1 italic opacity-40 leading-none italic font-black">Цель: {v.min}-{v.max}</p>
                 </div>
@@ -322,7 +320,7 @@ export default function App() {
 
     if (!tool) return (
       <div className="view-container animate-fadeIn italic font-black leading-none italic font-black italic font-black">
-        <h2 className="text-xl font-bold text-white uppercase mb-10 tracking-tighter leading-none italic font-black italic">Инструменты</h2>
+        <h2 className="text-xl font-bold text-white uppercase mb-10 tracking-tighter leading-none italic font-black italic font-black">Инструменты</h2>
         <div className="grid grid-cols-2 gap-5 leading-none font-black italic font-black">
           {[
             { id:'kh', n:'KH Буфер', i:Activity, c:'text-purple-400' },
@@ -330,7 +328,7 @@ export default function App() {
             { id:'bal', n:'Баллинг', i:Droplets, c:'text-yellow-400' },
             { id:'vol', n:'Объем', i:Box, c:'text-cyan-400' }
           ].map(i => (
-            <button key={i.id} onClick={()=>setTool(i.id)} className="premium-card !p-8 flex flex-col items-center gap-4 active:scale-95 transition-all shadow-xl leading-none italic font-black italic">
+            <button key={i.id} onClick={()=>setTool(i.id)} className="premium-card !p-8 flex flex-col items-center gap-4 active:scale-95 transition-all shadow-xl leading-none italic font-black italic font-black shadow-inner">
               <div className="p-4 bg-slate-950 rounded-2xl shadow-inner leading-none italic font-black italic font-black"><i.i className={i.c} size={28} /></div>
               <span className="text-[10px] font-black uppercase text-slate-300 tracking-widest leading-none italic font-black italic font-black">{i.n}</span>
             </button>
@@ -344,34 +342,33 @@ export default function App() {
         <button onClick={()=>setTool(null)} className="flex items-center gap-2 text-cyan-400 text-[10px] uppercase font-bold mb-8 active:scale-90 transition-all leading-none italic font-black italic font-black"><ArrowLeft size={16}/> Назад</button>
         <div className="premium-card !p-8 space-y-10 shadow-2xl leading-none font-black italic shadow-inner font-black italic font-black">
           <div className="space-y-6 italic font-black leading-none italic font-black">
-            <label className="text-[10px] text-slate-600 uppercase font-black tracking-widest px-4 leading-none italic font-black font-black">Объем системы (Л)</label>
+            <label className="text-[10px] text-slate-600 uppercase font-black tracking-widest px-4 leading-none italic font-black font-black font-black">Объем системы (Л)</label>
             <input type="number" value={v.v} onChange={e => setV({...v, v: e.target.value})} className="w-full bg-[#020617] text-center text-5xl font-mono font-black text-white outline-none border-b-2 border-slate-900 focus:border-cyan-500 transition-all pb-2 shadow-inner leading-none italic font-black italic font-black" placeholder="000" />
-            
             {(tool === 'kh' || tool === 'ca') && (
                <div className="space-y-6 italic leading-none font-black font-black italic leading-none italic font-black">
                  <div className="font-black italic">
-                    <label className="text-[10px] text-slate-700 uppercase font-black px-4 italic mb-2 block leading-none font-black font-black">Выберите бренд</label>
+                    <label className="text-[10px] text-slate-700 uppercase font-black px-4 italic mb-2 block leading-none font-black font-black font-black">Выберите бренд</label>
                     <select value={brand} onChange={e => setBrand(e.target.value)} className="w-full bg-[#020617] border border-white/5 p-4 rounded-xl text-white font-black uppercase text-xs italic outline-none shadow-xl leading-none italic font-black italic font-black">
                         {(tool === 'kh' ? REAGENTS.kh : REAGENTS.ca).map(r => <option key={r.brand} value={r.brand}>{r.brand}</option>)}
                     </select>
                  </div>
                  <div className="grid grid-cols-2 gap-4 italic font-black leading-none font-black">
-                   <div className="bg-[#020617] p-5 rounded-2xl border border-white/5 text-center shadow-inner leading-none italic font-black italic leading-none">
+                   <div className="bg-[#020617] p-5 rounded-2xl border border-white/5 text-center shadow-inner leading-none italic font-black font-black italic leading-none font-black italic font-black">
                      <label className="text-[8px] text-slate-800 uppercase font-black mb-2 block leading-none font-black italic italic font-black">Было</label>
-                     <input type="number" value={v.c} onChange={e => setV({...v, c: e.target.value})} className="bg-transparent text-white text-2xl font-black w-full text-center outline-none italic leading-none font-black italic font-black" />
+                     <input type="number" value={v.c} onChange={e => setV({...v, c: e.target.value})} className="bg-transparent text-white text-2xl font-black w-full text-center outline-none italic leading-none font-black italic font-black italic font-black" />
                    </div>
-                   <div className="bg-[#020617] p-5 rounded-2xl border border-white/5 text-center shadow-inner leading-none italic font-black italic leading-none">
+                   <div className="bg-[#020617] p-5 rounded-2xl border border-white/5 text-center shadow-inner leading-none italic font-black font-black italic leading-none font-black italic font-black">
                      <label className="text-[8px] text-slate-800 uppercase font-black mb-2 block leading-none font-black italic italic font-black">Цель</label>
-                     <input type="number" value={v.t} onChange={e => setV({...v, t: e.target.value})} className="bg-transparent text-white text-2xl font-black w-full text-center outline-none italic leading-none font-black italic font-black" />
+                     <input type="number" value={v.t} onChange={e => setV({...v, t: e.target.value})} className="bg-transparent text-white text-2xl font-black w-full text-center outline-none italic leading-none font-black italic font-black italic font-black" />
                    </div>
                  </div>
                </div>
             )}
           </div>
-          <div className="bg-cyan-900/10 p-10 rounded-3xl border border-cyan-500/20 text-center shadow-inner relative overflow-hidden leading-none italic font-black leading-none font-black italic leading-none font-black">
+          <div className="bg-cyan-900/10 p-10 rounded-3xl border border-cyan-500/20 text-center shadow-inner relative overflow-hidden leading-none italic font-black leading-none font-black italic leading-none font-black shadow-inner">
             <Calculator className="absolute -right-4 -bottom-4 opacity-5 rotate-12 italic font-black shadow-inner italic font-black" size={150}/>
             <p className="text-[9px] text-cyan-400 font-bold uppercase mb-4 tracking-widest italic opacity-60 leading-none font-black italic italic font-black">Схема поднятия</p>
-            <div className="text-6xl font-black text-white italic tracking-tighter leading-none relative z-10 mb-4 font-black italic leading-none font-black italic font-black">
+            <div className="text-6xl font-black text-white italic tracking-tighter leading-none relative z-10 mb-4 font-black italic leading-none font-black italic font-black shadow-inner">
               {resCalc.total} <span className="text-2xl text-cyan-500/30 ml-1 font-normal not-italic uppercase tracking-widest leading-none italic font-black italic font-black">г</span>
             </div>
             <p className="text-[9px] text-slate-300 font-black uppercase tracking-widest opacity-60 leading-relaxed italic leading-none font-black italic font-black italic leading-none font-black italic font-black">
@@ -389,14 +386,14 @@ export default function App() {
     return (
       <div className="view-container animate-fadeIn italic font-black leading-none italic font-black italic font-black leading-none italic font-black italic font-black">
         <div className="flex justify-between items-center mb-10 leading-none italic font-black italic italic font-black">
-          <h2 className="text-xl font-bold text-white uppercase italic tracking-tighter leading-none italic font-black italic">Био-сфера</h2>
-          <button onClick={() => setIsAddingCoral(true)} className="p-3 bg-cyan-600 rounded-2xl text-white shadow-lg active:scale-90 transition-all leading-none shadow-cyan-950/40 italic font-black italic font-black shadow-inner"><Plus size={24}/></button>
+          <h2 className="text-xl font-bold text-white uppercase italic tracking-tighter leading-none italic font-black italic font-black">Био-сфера</h2>
+          <button onClick={() => setIsAddingCoral(true)} className="p-3 bg-cyan-600 rounded-2xl text-white shadow-lg active:scale-90 transition-all leading-none shadow-cyan-950/40 italic font-black italic font-black shadow-inner leading-none"><Plus size={24}/></button>
         </div>
-        <div className="space-y-4 font-black italic leading-none italic font-black">
+        <div className="space-y-4 font-black italic leading-none italic font-black pb-40">
            {list.length === 0 ? (
                <div className="py-24 text-center opacity-10 leading-none italic font-black leading-none italic font-black italic font-black italic font-black"><Fish size={80} className="mx-auto mb-4 italic font-black font-black"/><p className="text-[10px] uppercase font-black italic leading-none font-black italic font-black italic font-black italic">Сектор пуст</p></div>
            ) : list.map(item => (
-               <div key={item.id} className="premium-card !p-5 flex justify-between items-center group leading-none italic shadow-xl bg-slate-900/40 border-none italic font-black font-black font-black italic font-black italic font-black">
+               <div key={item.id} className="premium-card !p-5 flex justify-between items-center group leading-none italic shadow-xl bg-slate-900/40 border-none italic font-black font-black font-black italic font-black italic font-black shadow-inner">
                   <div className="flex items-center gap-4 italic leading-none font-black font-black italic font-black font-black italic font-black italic font-black">
                       <div className={`w-2.5 h-2.5 rounded-full ${item.type === 'sps' ? 'bg-purple-500 shadow-[0_0_15px_purple]' : item.type === 'lps' ? 'bg-emerald-500 shadow-[0_0_15px_#10b981]' : 'bg-yellow-500'} italic font-black italic font-black`}></div>
                       <div className="leading-none italic font-black font-black italic font-black italic font-black italic font-black">
@@ -426,7 +423,7 @@ export default function App() {
       try {
         const reader = new FileReader();
         const base64 = await new Promise(r => { reader.onload = () => r(reader.result.split(',')[1]); reader.readAsDataURL(f); });
-        const txt = await callVision(base64, f.type, "Identify diseases in this aquarium photo. Briefly in Russian.");
+        const txt = await callVision(base64, f.type, "Identify diseases in this aquarium photo (fish or coral). Answer briefly in Russian.");
         setRes(txt);
       } catch (err) { setRes(`Ошибка: ${err.message}`); }
       setBusy(false);
@@ -434,9 +431,9 @@ export default function App() {
 
     return (
       <div className="view-container animate-fadeIn font-black italic leading-none italic font-black leading-none italic font-black italic font-black leading-none italic font-black pb-40">
-        <h2 className="text-xl font-black uppercase text-white mb-10 italic underline decoration-emerald-500 decoration-4 underline-offset-8 tracking-tighter font-black">ИИ Доктор</h2>
-        <div className="bg-emerald-950/5 p-10 rounded-[2.5rem] border border-emerald-500/20 text-center relative overflow-hidden mb-10 shadow-2xl shadow-emerald-950/40 italic font-black font-black italic font-black">
-          <Stethoscope className="absolute -right-8 -bottom-8 opacity-5 rotate-12 text-emerald-500 shadow-xl italic font-black font-black italic font-black" size={200}/>
+        <h2 className="text-xl font-black uppercase text-white mb-10 italic underline decoration-emerald-500 decoration-4 underline-offset-8 tracking-tighter font-black font-black">ИИ Доктор</h2>
+        <div className="bg-emerald-950/5 p-10 rounded-[2.5rem] border border-emerald-500/20 text-center relative overflow-hidden mb-10 shadow-2xl shadow-emerald-950/40 italic font-black font-black italic font-black shadow-inner">
+          <Stethoscope className="absolute -right-8 -bottom-8 opacity-5 rotate-12 text-emerald-500 shadow-xl italic font-black font-black italic font-black shadow-inner" size={200}/>
           <p className="text-[9px] text-emerald-500/60 uppercase font-black tracking-widest mb-10 z-10 relative italic font-black italic font-black italic font-black italic font-black leading-relaxed italic font-black">Биометрический анализ патогенов обитателей рифа</p>
           <input type="file" id="ai-doc" className="hidden" onChange={handleDoc} />
           <label htmlFor="ai-doc" className={`w-full py-5 bg-white text-emerald-950 rounded-2xl font-bold uppercase text-[10px] tracking-widest flex items-center justify-center gap-3 cursor-pointer shadow-xl active:scale-95 transition-all z-10 relative leading-none italic font-black font-black italic font-black italic font-black ${busy ? 'opacity-50 pointer-events-none' : ''}`}>
@@ -444,10 +441,10 @@ export default function App() {
             <span className="italic font-black font-black leading-none italic font-black">Анализ...</span>
           </label>
         </div>
-        {img && <div className="rounded-[2.5rem] overflow-hidden border-8 border-slate-950 shadow-2xl h-80 mb-10 italic leading-none shadow-inner italic font-black leading-none shadow-inner italic font-black leading-none italic font-black shadow-inner italic font-black"><img src={img} className="w-full h-full object-cover leading-none italic font-black leading-none shadow-inner italic font-black leading-none italic font-black" /></div>}
+        {img && <div className="rounded-[2.5rem] overflow-hidden border-8 border-slate-950 shadow-2xl h-80 mb-10 italic leading-none shadow-inner italic font-black leading-none shadow-inner italic font-black leading-none italic font-black shadow-inner italic font-black shadow-inner"><img src={img} className="w-full h-full object-cover leading-none italic font-black leading-none shadow-inner italic font-black leading-none italic font-black shadow-inner" /></div>}
         {res && <div className="bg-slate-900/60 p-8 rounded-3xl border border-emerald-500/20 shadow-xl animate-slideUp relative italic leading-none font-black shadow-inner font-black italic font-black italic font-black italic font-black">
             <div className="absolute top-0 left-10 -translate-y-1/2 bg-emerald-500 text-slate-950 px-8 py-2 rounded-full font-black text-[9px] uppercase italic shadow-lg italic font-black italic font-black italic font-black">Вердикт ИИ</div>
-          <p className="text-slate-200 text-xs font-medium leading-relaxed italic opacity-90 leading-loose italic font-black leading-none italic font-black italic font-black leading-loose italic font-black">{res}</p>
+          <p className="text-slate-200 text-xs font-medium leading-relaxed italic opacity-90 leading-loose italic font-black leading-none italic font-black italic font-black leading-loose italic font-black shadow-inner">{res}</p>
         </div>}
       </div>
     );
@@ -460,38 +457,38 @@ export default function App() {
 
     return (
       <div className="view-container animate-fadeIn italic font-black leading-none font-black italic font-black italic font-black leading-none italic font-black italic font-black leading-none italic font-black italic font-black leading-none pb-40">
-        <div className="premium-card !p-12 flex flex-col items-center text-center relative shadow-cyan-950/30 italic font-black font-black italic font-black leading-none italic font-black font-black italic font-black leading-none italic font-black italic font-black">
-          <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-cyan-600 to-blue-800 shadow-xl leading-none italic font-black font-black italic font-black italic font-black italic font-black"></div>
+        <div className="premium-card !p-12 flex flex-col items-center text-center relative shadow-cyan-950/30 italic font-black font-black italic font-black leading-none italic font-black font-black italic font-black leading-none italic font-black italic font-black shadow-inner">
+          <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-cyan-600 to-blue-800 shadow-xl leading-none italic font-black font-black italic font-black italic font-black italic font-black shadow-inner"></div>
           <div className="avatar-circle italic shadow-cyan-900/50 flex items-center justify-center italic font-black font-black italic font-black leading-none italic font-black italic font-black font-black italic font-black leading-none italic font-black italic font-black shadow-inner">
               {userData?.personalInfo?.fullName?.[0]?.toUpperCase() || 'H'}
           </div>
           {!isEditingProfile ? (
-            <div className="mt-12 space-y-4 w-full italic font-black leading-none italic font-black font-black italic font-black italic font-black">
+            <div className="mt-12 space-y-4 w-full italic font-black leading-none italic font-black font-black italic font-black italic font-black shadow-inner">
                 <h2 className="text-xl font-bold text-white uppercase italic tracking-tight leading-none italic font-black italic font-black italic font-black italic font-black italic font-black italic font-black">{userData?.personalInfo?.fullName || 'ХРАНИТЕЛЬ'}</h2>
                 <p className="text-[10px] text-slate-700 uppercase tracking-[0.4em] mb-10 font-black leading-none italic opacity-50 font-black italic font-black italic font-black italic font-black italic font-black">{user?.email}</p>
-                <div className="grid grid-cols-2 gap-3 pt-6 leading-none font-black italic font-black italic font-black leading-none italic font-black font-black italic font-black leading-none italic font-black italic font-black italic font-black">
-                    <div className="bg-slate-950/50 p-5 rounded-3xl border border-white/5 text-left italic leading-none shadow-inner font-black italic font-black leading-none italic font-black font-black leading-none italic font-black italic font-black">
+                <div className="grid grid-cols-2 gap-3 pt-6 leading-none font-black italic font-black italic font-black leading-none italic font-black font-black italic font-black leading-none italic font-black italic font-black italic font-black shadow-inner">
+                    <div className="bg-slate-950/50 p-5 rounded-3xl border border-white/5 text-left italic leading-none shadow-inner font-black italic font-black leading-none italic font-black font-black leading-none italic font-black italic font-black shadow-inner">
                         <p className="text-[7px] text-slate-800 uppercase font-black mb-2 opacity-30 leading-none italic font-black font-black leading-none italic font-black italic font-black italic font-black leading-none italic font-black italic font-black">Локация</p>
-                        <p className="text-xs text-slate-300 font-bold truncate font-black italic leading-none">{userData?.personalInfo?.city || '-'}, {userData?.personalInfo?.country || '-'}</p>
+                        <p className="text-xs text-slate-300 font-bold truncate font-black italic leading-none shadow-inner">{userData?.personalInfo?.city || '-'}, {userData?.personalInfo?.country || '-'}</p>
                     </div>
-                    <div className="bg-slate-950/50 p-5 rounded-3xl border border-white/5 text-left italic leading-none shadow-inner font-black italic font-black leading-none italic font-black font-black leading-none italic font-black italic font-black">
-                        <p className="text-[7px] text-slate-800 uppercase font-black mb-2 opacity-30 leading-none italic font-black font-black leading-none italic font-black italic font-black">Рождение</p>
-                        <p className="text-xs text-slate-300 font-bold font-black leading-none italic font-black font-black leading-none italic font-black italic font-black italic font-black leading-none italic font-black italic font-black font-black">{userData?.personalInfo?.dob || '-'}</p>
+                    <div className="bg-slate-950/50 p-5 rounded-3xl border border-white/5 text-left italic leading-none shadow-inner font-black italic font-black leading-none italic font-black font-black leading-none italic font-black italic font-black shadow-inner">
+                        <p className="text-[7px] text-slate-800 uppercase font-black mb-2 opacity-30 leading-none italic font-black font-black leading-none italic font-black italic font-black italic font-black leading-none italic font-black italic font-black shadow-inner">Рождение</p>
+                        <p className="text-xs text-slate-300 font-bold font-black leading-none italic font-black font-black leading-none italic font-black italic font-black italic font-black leading-none italic font-black italic font-black font-black shadow-inner">{userData?.personalInfo?.dob || '-'}</p>
                     </div>
                 </div>
-                <button onClick={() => setIsEditingProfile(true)} className="flex items-center gap-2 text-cyan-400 text-[9px] font-black uppercase tracking-widest pt-12 mx-auto hover:text-cyan-300 transition-colors leading-none italic shadow-inner font-black font-black italic font-black leading-none italic font-black italic font-black font-black italic font-black leading-none italic font-black font-black italic font-black italic font-black shadow-inner"><Edit2 size={12} className="italic font-black leading-none italic font-black font-black italic font-black italic font-black"/> Настройки профиля</button>
+                <button onClick={() => setIsEditingProfile(true)} className="flex items-center gap-2 text-cyan-400 text-[9px] font-black uppercase tracking-widest pt-12 mx-auto hover:text-cyan-300 transition-colors leading-none italic shadow-inner font-black font-black italic font-black leading-none italic font-black italic font-black font-black italic font-black leading-none italic font-black font-black italic font-black italic font-black shadow-inner"><Edit2 size={12} className="italic font-black leading-none italic font-black font-black italic font-black italic font-black shadow-inner"/> Настройки профиля</button>
             </div>
           ) : (
-            <div className="mt-12 space-y-6 w-full text-left font-black leading-none italic font-black font-black leading-none italic font-black italic font-black italic font-black leading-none italic font-black italic font-black shadow-inner p-4">
-                <div className="space-y-2 leading-none italic font-black italic leading-none italic font-black font-black italic font-black leading-none italic font-black italic font-black"><label className="text-[7px] text-slate-800 uppercase px-4 leading-none italic font-black font-black font-black italic font-black leading-none font-black italic font-black font-black italic font-black leading-none italic font-black italic font-black">Позывной</label><input value={editData.fullName} onChange={e=>setEditData({...editData, fullName: e.target.value})} className="profile-input italic shadow-inner border-cyan-500/10 font-black italic font-black font-black italic font-black leading-none shadow-inner italic font-black font-black italic font-black leading-none italic font-black italic font-black italic font-black shadow-inner" /></div>
+            <div className="mt-12 space-y-6 w-full text-left font-black leading-none italic font-black font-black leading-none italic font-black italic font-black italic font-black leading-none italic font-black italic font-black shadow-inner p-4 shadow-inner">
+                <div className="space-y-2 leading-none italic font-black italic leading-none italic font-black font-black italic font-black leading-none italic font-black italic font-black shadow-inner"><label className="text-[7px] text-slate-800 uppercase px-4 leading-none italic font-black font-black font-black italic font-black leading-none font-black italic font-black font-black italic font-black leading-none italic font-black italic font-black shadow-inner">Позывной</label><input value={editData.fullName} onChange={e=>setEditData({...editData, fullName: e.target.value})} className="profile-input italic shadow-inner border-cyan-500/10 font-black italic font-black font-black italic font-black leading-none shadow-inner italic font-black font-black italic font-black leading-none italic font-black italic font-black italic font-black shadow-inner" /></div>
                 <div className="grid grid-cols-2 gap-4 italic leading-none font-black italic font-black italic leading-none italic font-black italic font-black font-black italic font-black leading-none italic font-black italic font-black shadow-inner">
-                    <div className="space-y-2 leading-none italic font-black italic font-black italic leading-none font-black italic font-black font-black italic font-black leading-none font-black italic font-black italic font-black shadow-inner"><label className="text-[7px] text-slate-800 uppercase px-4 leading-none italic font-black font-black italic font-black leading-none font-black font-black italic font-black italic font-black leading-none italic font-black shadow-inner">Страна</label><input value={editData.country} onChange={e=>setEditData({...editData, country: e.target.value})} className="profile-input italic shadow-inner border-cyan-500/10 font-black italic font-black italic font-black font-black leading-none italic font-black font-black italic font-black leading-none italic font-black italic font-black shadow-inner" /></div>
-                    <div className="space-y-2 leading-none italic font-black italic font-black italic leading-none font-black italic font-black font-black italic font-black leading-none font-black italic font-black italic font-black shadow-inner"><label className="text-[7px] text-slate-800 uppercase px-4 leading-none italic font-black font-black italic font-black leading-none font-black font-black italic font-black italic font-black leading-none italic font-black shadow-inner">Город</label><input value={editData.city} onChange={e=>setEditData({...editData, city: e.target.value})} className="profile-input italic shadow-inner border-cyan-500/10 font-black italic font-black italic font-black font-black leading-none italic font-black font-black italic font-black leading-none italic font-black italic font-black shadow-inner" /></div>
+                    <div className="space-y-2 leading-none italic font-black italic font-black italic leading-none font-black italic font-black font-black italic font-black leading-none font-black italic font-black italic font-black shadow-inner"><label className="text-[7px] text-slate-800 uppercase px-4 leading-none italic font-black font-black italic font-black leading-none font-black font-black italic font-black italic font-black leading-none italic font-black shadow-inner">Страна</label><input value={editData.country} onChange={e=>setEditData({...editData, country: e.target.value})} className="profile-input italic shadow-inner border-cyan-500/10 font-black italic font-black italic font-black font-black leading-none italic font-black font-black italic font-black leading-none italic font-black shadow-inner" /></div>
+                    <div className="space-y-2 leading-none italic font-black italic font-black italic leading-none font-black italic font-black font-black italic font-black leading-none font-black italic font-black italic font-black shadow-inner"><label className="text-[7px] text-slate-800 uppercase px-4 leading-none italic font-black font-black italic font-black leading-none font-black font-black italic font-black italic font-black leading-none italic font-black shadow-inner">Город</label><input value={editData.city} onChange={e=>setEditData({...editData, city: e.target.value})} className="profile-input italic shadow-inner border-cyan-500/10 font-black italic font-black italic font-black font-black leading-none italic font-black font-black italic font-black leading-none italic font-black shadow-inner" /></div>
                 </div>
-                <div className="space-y-2 leading-none italic font-black italic font-black italic leading-none font-black italic font-black font-black italic font-black leading-none italic font-black italic font-black font-black leading-none font-black italic font-black shadow-inner"><label className="text-[7px] text-slate-800 uppercase px-4 leading-none italic font-black font-black italic font-black leading-none font-black font-black italic font-black italic font-black leading-none italic font-black italic font-black leading-none font-black shadow-inner">Дата рождения</label><input type="date" value={editData.dob} onChange={e=>setEditData({...editData, dob: e.target.value})} className="profile-input italic shadow-inner border-cyan-500/10 font-black italic font-black italic font-black font-black leading-none italic font-black leading-none italic font-black font-black italic font-black leading-none italic font-black italic font-black shadow-inner" /></div>
-                <div className="flex gap-3 pt-8 leading-none italic font-black font-black italic font-black leading-none italic font-black leading-none italic font-black font-black italic font-black leading-none italic font-black italic font-black shadow-inner">
+                <div className="space-y-2 leading-none italic font-black italic font-black italic leading-none font-black italic font-black font-black italic font-black leading-none italic font-black italic font-black font-black leading-none font-black italic font-black shadow-inner"><label className="text-[7px] text-slate-800 uppercase px-4 leading-none italic font-black font-black italic font-black leading-none font-black font-black italic font-black italic font-black leading-none italic font-black italic font-black leading-none font-black shadow-inner">Дата рождения</label><input type="date" value={editData.dob} onChange={e=>setEditData({...editData, dob: e.target.value})} className="profile-input italic shadow-inner border-cyan-500/10 font-black italic font-black italic font-black font-black leading-none italic font-black leading-none italic font-black font-black italic font-black leading-none italic font-black shadow-inner shadow-inner" /></div>
+                <div className="flex gap-3 pt-8 leading-none italic font-black font-black italic font-black leading-none italic font-black leading-none italic font-black font-black italic font-black leading-none italic font-black italic font-black shadow-inner shadow-inner">
                     <button onClick={() => setIsEditingProfile(false)} className="flex-1 py-5 bg-slate-900 border border-white/5 rounded-2xl text-[10px] font-black uppercase active:scale-95 transition-all italic leading-none opacity-40 italic font-black font-black leading-none italic font-black italic font-black font-black italic font-black leading-none italic font-black italic font-black shadow-inner">Отмена</button>
-                    <button onClick={() => updateProfileData(editData)} className="flex-1 py-5 bg-cyan-600 rounded-2xl text-[10px] font-black uppercase italic text-white shadow-lg shadow-cyan-900/30 active:scale-95 transition-all leading-none italic font-black italic font-black font-black leading-none italic font-black italic font-black font-black italic font-black leading-none italic font-black italic font-black shadow-inner">Сохранить</button>
+                    <button onClick={() => updateProfileData(editData)} className="flex-1 py-5 bg-cyan-600 rounded-2xl text-[10px] font-black uppercase italic text-white shadow-lg shadow-cyan-900/30 active:scale-95 transition-all leading-none italic font-black italic font-black font-black leading-none italic font-black italic font-black font-black italic font-black leading-none italic font-black italic font-black shadow-inner shadow-inner">Сохранить</button>
                 </div>
             </div>
           )}
@@ -499,32 +496,32 @@ export default function App() {
         <div className="bg-amber-950/10 p-10 rounded-3xl mt-10 border border-amber-500/20 shadow-2xl relative overflow-hidden group italic leading-none font-black shadow-inner leading-none font-black italic font-black italic leading-none font-black font-black italic font-black leading-none italic font-black font-black italic font-black leading-none italic font-black italic font-black shadow-inner">
            <Crown className="absolute -right-4 -bottom-4 opacity-[0.03] text-amber-500 group-hover:scale-110 transition-transform duration-700 italic font-black font-black italic font-black leading-none italic font-black italic font-black font-black italic font-black leading-none italic font-black italic font-black shadow-inner" size={120}/>
            <div className="flex justify-between items-center mb-6 leading-none italic font-black font-black font-black italic leading-none italic font-black italic font-black font-black italic font-black leading-none italic font-black italic font-black shadow-inner">
-              <div className="flex items-center gap-4 leading-none font-bold italic font-black font-black italic font-black leading-none italic font-black font-black italic font-black leading-none italic font-black shadow-inner italic font-black"><Crown className="text-amber-500 shadow-xl shadow-amber-900/30 italic font-black italic font-black leading-none italic font-black font-black italic font-black leading-none italic font-black shadow-inner italic font-black" size={32}/><div><p className="text-amber-200 uppercase text-[9px] font-bold italic leading-none italic font-black italic font-black leading-none italic font-black font-black italic font-black leading-none italic font-black italic font-black shadow-inner">ТЕРМИНАЛ ПРО</p></div></div>
+              <div className="flex items-center gap-4 leading-none font-bold italic font-black font-black italic font-black leading-none italic font-black font-black italic font-black leading-none italic font-black shadow-inner italic font-black shadow-inner"><Crown className="text-amber-500 shadow-xl shadow-amber-900/30 italic font-black italic font-black leading-none italic font-black font-black italic font-black leading-none italic font-black shadow-inner italic font-black" size={32}/><div><p className="text-amber-200 uppercase text-[9px] font-bold italic leading-none italic font-black italic font-black leading-none italic font-black font-black italic font-black leading-none italic font-black italic font-black shadow-inner">ТЕРМИНАЛ ПРО</p></div></div>
               <div className="text-6xl font-black text-amber-500 tracking-tighter leading-none italic drop-shadow-2xl italic font-black font-black italic leading-none italic font-black italic font-black font-black italic font-black leading-none italic font-black italic font-black shadow-inner">{leftDays}</div>
            </div>
-           <div className="progress-track leading-none italic shadow-inner leading-none font-black font-black italic font-black leading-none italic font-black font-black italic font-black leading-none italic font-black shadow-inner italic font-black"><div className="progress-fill shadow-amber-500/50 leading-none font-black italic font-black font-black leading-none font-black italic font-black font-black italic font-black leading-none font-black italic font-black shadow-inner italic font-black" style={{width:`${(leftDays/30)*100}%`}}></div></div>
+           <div className="progress-track leading-none italic shadow-inner leading-none font-black font-black italic font-black leading-none italic font-black font-black italic font-black leading-none italic font-black shadow-inner italic font-black shadow-inner"><div className="progress-fill shadow-amber-500/50 leading-none font-black italic font-black font-black leading-none font-black italic font-black font-black italic font-black leading-none font-black italic font-black shadow-inner italic font-black" style={{width:`${(leftDays/30)*100}%`}}></div></div>
         </div>
         <button onClick={() => signOut(auth)} className="shutdown-btn mt-12 active:scale-95 transition-all shadow-xl leading-none italic font-bold uppercase shadow-red-900/20 italic font-black border-none cursor-pointer leading-none font-black italic font-black italic font-black leading-none font-black italic font-black font-black italic font-black leading-none italic font-black italic font-black shadow-inner">
-          <LogOut size={16} className="italic font-black leading-none italic font-black font-black italic font-black leading-none italic font-black italic font-black shadow-inner"/> Завершить сессию
+          <LogOut size={16} className="italic font-black leading-none italic font-black font-black italic font-black leading-none italic font-black italic font-black shadow-inner shadow-inner"/> Завершить сессию
         </button>
       </div>
     );
   };
 
   return (
-    <div className="app-shell italic font-black leading-none italic font-black italic font-black leading-none italic font-black italic font-black leading-none italic font-black italic font-black">
+    <div className="app-shell italic font-black leading-none font-black italic font-black italic font-black leading-none italic font-black italic font-black leading-none italic font-black italic font-black shadow-inner">
       <style>{`
         .app-shell { min-height: 100vh; background: #020617; color: #f8fafc; font-family: sans-serif; overflow-x: hidden; }
         .view-container { max-width: 480px; margin: 0 auto; padding: 2rem 1.5rem 15rem 1.5rem; }
         .header-title { font-size: 1.75rem; font-weight: 800; text-transform: uppercase; font-style: italic; color: white; letter-spacing: -0.02em; }
         .header-subtitle { color: #06b6d4; font-weight: 700; text-transform: uppercase; font-size: 0.7rem; letter-spacing: 0.1em; opacity: 0.8; margin-top: 4px; }
-        .premium-card { background: rgba(15, 23, 42, 0.6); border-radius: 2.5rem; border: 1px solid rgba(255,255,255,0.05); padding: 2rem; position: relative; overflow: hidden; box-shadow: 0 30px 60px rgba(0,0,0,0.5); margin-bottom: 1.5rem; }
+        .premium-card { background: rgba(15, 23, 42, 0.6); border-radius: 2.5rem; border: 1px solid rgba(255,255,255,0.05); padding: 2rem; position: relative; overflow: hidden; box-shadow: 0 30px 60px rgba(0,0,0,0.5); }
         .card-bg-icon { position: absolute; bottom: -2rem; right: -2rem; opacity: 0.03; pointer-events: none; }
         .accent-bar { width: 4px; height: 1.5rem; background: #06b6d4; border-radius: 99px; box-shadow: 0 0 10px #06b6d4; }
         .stat-pill { background: #020617; padding: 1.25rem; border-radius: 2rem; border: 1px solid rgba(255,255,255,0.03); text-align: center; box-shadow: inset 0 2px 4px rgba(0,0,0,0.5); }
         .stat-pill-label { font-size: 8px; font-weight: 800; color: #475569; text-transform: uppercase; display: block; margin-bottom: 4px; font-style: italic; }
         .stat-pill-num { font-size: 1.75rem; font-weight: 900; color: white; font-family: monospace; }
-        .action-btn-main { width: 100%; padding: 1.5rem; background: #0891b2; color: white; border: none; border-radius: 2rem; font-weight: 900; text-transform: uppercase; font-size: 0.75rem; cursor: pointer; letter-spacing: 0.2em; font-style: italic; box-shadow: 0 10px 20px rgba(8, 145, 178, 0.3); }
+        .action-btn-main { width: 100%; padding: 1.5rem; background: #0891b2; color: white; border: none; border-radius: 2rem; font-weight: 900; text-transform: uppercase; font-size: 0.75rem; cursor: pointer; shadow-2xl; letter-spacing: 0.2em; font-style: italic; }
         .nav-bar { position: fixed; bottom: 0; left: 50%; transform: translateX(-50%); width: 94%; max-width: 480px; background: rgba(15, 23, 42, 0.98); backdrop-filter: blur(80px); border: 1px solid rgba(255,255,255,0.05); padding: 0.6rem 1rem; z-index: 2000; margin-bottom: 1.5rem; border-radius: 3.5rem; box-shadow: 0 -20px 40px rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: space-around; flex-direction: row; }
         .nav-btn { display: flex; flex-direction: column; align-items: center; background: none; border: none; color: #334155; cursor: pointer; transition: 0.3s; flex: 1; }
         .nav-btn.active { color: #06b6d4; transform: translateY(-3px); filter: drop-shadow(0 0 10px rgba(6,182,212,0.6)); }
@@ -563,50 +560,70 @@ export default function App() {
 
       {/* МОДАЛКИ (ФИКС) */}
       {isCreating && (
-        <div className="modal-overlay animate-fadeIn italic font-black leading-none shadow-inner">
-          <div className="modal-card italic shadow-cyan-950/20 leading-none">
-            <h2 className="text-3xl font-black text-white uppercase italic tracking-tighter mb-12 underline decoration-cyan-500 decoration-4 underline-offset-8 leading-none font-black italic">Новая система</h2>
-            <div className="space-y-8 leading-none italic font-black shadow-inner">
-              <div className="space-y-4 leading-none italic shadow-inner"><label className="text-[10px] text-slate-700 uppercase font-black px-2 italic shadow-inner leading-none">Идентификатор</label><input autoFocus placeholder="Проект Зеро" className="auth-input italic shadow-inner !p-5 !text-lg font-black leading-none border-cyan-500/10 shadow-inner font-black italic" value={newAqData.name} onChange={e=>setNewAqData({...newAqData, name: e.target.value})} /></div>
-              <div className="space-y-4 leading-none italic shadow-inner"><label className="text-[10px] text-slate-700 uppercase font-black px-2 italic shadow-inner leading-none">Объем воды (Л)</label><input type="number" placeholder="100" className="auth-input italic shadow-inner !p-5 !text-4xl font-black leading-none border-cyan-500/10 shadow-inner font-black italic" value={newAqData.volume} onChange={e=>setNewAqData({...newAqData, volume: e.target.value})} /></div>
-              <div className="flex flex-col gap-3 pt-6 leading-none italic">
-                  <button onClick={()=>handleAqAction('add', newAqData)} className="w-full py-5 bg-cyan-600 text-white rounded-2xl font-black uppercase text-[11px] tracking-widest shadow-xl active:scale-95 transition-all shadow-inner border-none cursor-pointer">Активировать</button>
-                  <button onClick={()=>setIsCreating(false)} className="w-full py-4 text-slate-700 font-black uppercase text-[9px] tracking-widest italic opacity-40 leading-none shadow-inner border-none cursor-pointer font-black italic">Отмена</button>
+        <div className="modal-overlay animate-fadeIn italic font-black leading-none shadow-inner italic font-black shadow-inner">
+          <div className="modal-card shadow-inner">
+            <h2 className="text-3xl font-black text-white uppercase italic tracking-tighter mb-12 underline decoration-cyan-500 decoration-4 underline-offset-8 leading-none italic font-black shadow-inner">Новая система</h2>
+            <div className="space-y-8 leading-none italic font-black shadow-inner italic font-black shadow-inner">
+              <div className="space-y-4 leading-none italic shadow-inner italic font-black shadow-inner"><label className="text-[10px] text-slate-700 uppercase font-black px-2 italic shadow-inner leading-none italic font-black font-black shadow-inner font-black">Идентификатор</label><input autoFocus placeholder="Проект Зеро" className="auth-input italic shadow-inner !p-5 !text-lg font-black leading-none border-cyan-500/10 shadow-inner font-black italic font-black shadow-inner font-black" value={newAqData.name} onChange={e=>setNewAqData({...newAqData, name: e.target.value})} /></div>
+              <div className="space-y-4 leading-none italic shadow-inner italic font-black shadow-inner italic font-black"><label className="text-[10px] text-slate-700 uppercase font-black px-2 italic shadow-inner leading-none italic font-black font-black shadow-inner font-black">Объем воды (Л)</label><input type="number" placeholder="100" className="auth-input italic shadow-inner !p-5 !text-4xl font-black leading-none border-cyan-500/10 shadow-inner font-black italic font-black shadow-inner font-black" value={newAqData.volume} onChange={e=>setNewAqData({...newAqData, volume: e.target.value})} /></div>
+              <div className="flex flex-col gap-3 pt-6 leading-none italic font-black shadow-inner font-black italic leading-none shadow-inner font-black">
+                  <button onClick={()=>handleAqAction('add', newAqData)} className="w-full py-5 bg-cyan-600 text-white rounded-2xl font-black uppercase text-[11px] tracking-widest shadow-xl active:scale-95 transition-all shadow-inner border-none cursor-pointer leading-none font-black italic italic shadow-inner">Активировать</button>
+                  <button onClick={()=>setIsCreating(false)} className="w-full py-4 text-slate-700 font-black uppercase text-[9px] tracking-widest italic opacity-40 leading-none shadow-inner border-none cursor-pointer leading-none font-black italic italic font-black shadow-inner">Отмена</button>
               </div>
             </div>
           </div>
         </div>
       )}
 
-      {waterChangeModal && (
-        <div className="modal-overlay animate-fadeIn italic font-black leading-none shadow-inner italic font-black italic font-black">
-          <div className="modal-card text-center italic font-black leading-none shadow-cyan-950/20 shadow-inner italic font-black shadow-inner italic font-black">
-            <h2 className="text-4xl text-white uppercase italic mb-12 font-black underline decoration-cyan-500 decoration-4 underline-offset-8 italic leading-none italic font-black shadow-inner italic font-black leading-none italic font-black">Refresh</h2>
-            <div className="my-12 flex items-center justify-center gap-4 leading-none shadow-inner italic font-black italic font-black italic font-black leading-none shadow-inner">
-              <input autoFocus type="number" placeholder="0" value={wcAmount} onChange={e=>setWcAmount(e.target.value)} className="w-full bg-[#020617] text-white text-7xl font-mono font-black text-center outline-none border-b border-slate-900 focus:border-cyan-500 transition-all pb-2 shadow-inner leading-none italic font-black shadow-inner italic font-black italic font-black leading-none shadow-inner" />
-              <span className="text-4xl text-slate-800 italic leading-none uppercase italic italic font-black shadow-inner font-black italic font-black italic font-black leading-none shadow-inner">Л</span>
+      {editingAqId && (
+        <div className="modal-overlay animate-fadeIn italic font-black leading-none shadow-inner">
+          <div className="modal-card">
+            <h2 className="text-3xl font-black text-white uppercase italic tracking-tighter mb-12 underline decoration-cyan-500 decoration-4 underline-offset-8 leading-none italic font-black shadow-inner">Настройки</h2>
+            <div className="space-y-8">
+              <div className="bg-[#020617] p-8 rounded-[2rem] border border-white/5 shadow-inner">
+                <p className="text-slate-500 text-[10px] uppercase font-bold mb-4 tracking-widest">ОПАСНАЯ ЗОНА</p>
+                <button 
+                  onClick={() => handleAqAction('delete', editingAqId)}
+                  className="w-full py-5 bg-red-950/20 border border-red-500/30 text-red-500 rounded-2xl font-black uppercase text-[11px] tracking-widest active:scale-95 transition-all flex items-center justify-center gap-3 italic shadow-inner"
+                >
+                  <Trash2 size={16}/> Удалить систему
+                </button>
+              </div>
+              <button onClick={() => setEditingAqId(null)} className="w-full py-4 text-slate-700 font-black uppercase text-[9px] tracking-widest italic opacity-40 leading-none shadow-inner border-none cursor-pointer">Вернуться</button>
             </div>
-            <div className="flex flex-col gap-4 pt-6 italic font-black leading-none italic shadow-inner font-black italic shadow-inner font-black italic shadow-inner leading-none italic font-black italic font-black leading-none shadow-inner">
-                <button onClick={()=>handleAqAction('wc', {id: waterChangeModal})} className="w-full py-6 bg-cyan-600 text-white rounded-2xl font-black uppercase text-[12px] tracking-[0.2em] shadow-2xl active:scale-95 leading-none shadow-inner border-none cursor-pointer font-black italic">Логировать</button>
-                <button onClick={()=>setWaterChangeModal(null)} className="w-full py-4 text-slate-700 font-black uppercase text-[9px] tracking-widest italic opacity-30 leading-none italic leading-none shadow-inner border-none cursor-pointer italic font-black shadow-inner font-black italic font-black">Закрыть</button>
+          </div>
+        </div>
+      )}
+
+      {waterChangeModal && (
+        <div className="modal-overlay animate-fadeIn italic font-black leading-none shadow-inner italic font-black italic font-black shadow-inner font-black">
+          <div className="modal-card text-center italic font-black leading-none shadow-cyan-950/20 shadow-inner italic font-black shadow-inner italic font-black">
+            <h2 className="text-4xl text-white uppercase italic mb-12 font-black underline decoration-cyan-500 decoration-4 underline-offset-8 italic leading-none italic font-black shadow-inner italic font-black leading-none italic font-black italic font-black shadow-inner">Refresh</h2>
+            <div className="my-12 flex items-center justify-center gap-4 leading-none shadow-inner italic font-black italic font-black italic font-black leading-none shadow-inner font-black">
+              <input autoFocus type="number" placeholder="0" value={wcAmount} onChange={e=>setWcAmount(e.target.value)} className="w-full bg-[#020617] text-white text-7xl font-mono font-black text-center outline-none border-b border-slate-900 focus:border-cyan-500 transition-all pb-2 shadow-inner leading-none italic font-black shadow-inner italic font-black italic font-black leading-none shadow-inner font-black" />
+              <span className="text-4xl text-slate-800 italic leading-none uppercase italic italic font-black shadow-inner font-black italic font-black italic font-black leading-none shadow-inner font-black">Л</span>
+            </div>
+            <div className="flex flex-col gap-4 pt-6 italic font-black leading-none italic shadow-inner font-black italic shadow-inner font-black italic shadow-inner leading-none italic font-black italic font-black leading-none shadow-inner font-black">
+                <button onClick={()=>handleAqAction('wc', {id: waterChangeModal})} className="w-full py-6 bg-cyan-600 text-white rounded-2xl font-black uppercase text-[12px] tracking-[0.2em] shadow-2xl active:scale-95 leading-none shadow-inner border-none cursor-pointer italic font-black shadow-inner font-black italic font-black italic font-black">Логировать</button>
+                <button onClick={()=>setWaterChangeModal(null)} className="w-full py-4 text-slate-700 font-black uppercase text-[9px] tracking-widest italic opacity-30 leading-none italic leading-none shadow-inner border-none cursor-pointer italic font-black shadow-inner font-black italic font-black italic font-black">Закрыть</button>
             </div>
           </div>
         </div>
       )}
 
       {infoModal && (
-          <div className="modal-overlay animate-fadeIn italic font-black leading-none shadow-inner italic font-black">
-              <div className="modal-card relative italic font-black leading-none shadow-cyan-950/30 shadow-inner font-black italic">
-                  <div className="flex items-center gap-4 mb-10 leading-none italic font-black leading-none shadow-inner">
-                      <div className="w-1 h-12 bg-cyan-500 rounded-full shadow-[0_0_20px_#06b6d4]"></div>
-                      <h3 className="text-3xl font-black text-white uppercase tracking-tighter leading-none italic font-black">{IDEAL_PARAMS[infoModal].name}</h3>
+          <div className="modal-overlay animate-fadeIn italic font-black leading-none shadow-inner italic font-black shadow-inner font-black">
+              <div className="modal-card relative italic font-black leading-none shadow-cyan-950/30 shadow-inner font-black italic font-black italic font-black italic leading-none italic font-black shadow-inner font-black italic font-black italic font-black italic leading-none font-black italic font-black italic leading-none font-black shadow-inner">
+                  <div className="flex items-center gap-4 mb-10 leading-none italic font-black leading-none shadow-inner italic font-black shadow-inner italic font-black leading-none italic font-black italic font-black leading-none font-black shadow-inner">
+                      <div className="w-1 h-12 bg-cyan-500 rounded-full shadow-[0_0_20px_#06b6d4] italic font-black shadow-inner font-black italic font-black italic leading-none font-black shadow-inner"></div>
+                      <h3 className="text-3xl font-black text-white uppercase tracking-tighter leading-none italic font-black italic leading-none italic font-black shadow-inner font-black italic font-black italic leading-none font-black italic font-black italic leading-none font-black shadow-inner">{IDEAL_PARAMS[infoModal].name}</h3>
                   </div>
-                  <div className="bg-[#020617] p-10 rounded-[3rem] border border-white/5 mb-10 shadow-inner leading-none italic font-black leading-none italic font-black font-black italic leading-none">
-                      <p className="text-sm text-slate-300 leading-relaxed italic font-bold opacity-90 leading-relaxed italic font-black shadow-inner font-black italic font-black">{IDEAL_PARAMS[infoModal].desc}</p>
+                  <div className="bg-[#020617] p-10 rounded-[3rem] border border-white/5 mb-10 shadow-inner leading-none italic font-black leading-none italic font-black font-black italic leading-none italic font-black shadow-inner font-black italic font-black italic font-black italic shadow-inner font-black italic leading-none font-black shadow-inner">
+                      <p className="text-sm text-slate-300 leading-relaxed italic font-bold opacity-90 leading-relaxed italic font-black shadow-inner font-black italic font-black italic font-black leading-relaxed italic font-black shadow-inner">{IDEAL_PARAMS[infoModal].desc}</p>
                   </div>
-                  <div className="flex justify-between items-center px-4 leading-none italic font-black leading-none">
-                      <span className="text-[10px] text-cyan-400/50 uppercase font-black tracking-[0.1em] italic leading-none uppercase italic font-black">Идеал: {IDEAL_PARAMS[infoModal].min}-{IDEAL_PARAMS[infoModal].max} {IDEAL_PARAMS[infoModal].unit}</span>
-                      <button onClick={() => setInfoModal(null)} className="py-5 px-12 bg-cyan-600 rounded-2xl font-black uppercase active:scale-90 transition-all leading-none shadow-xl shadow-cyan-900/40 text-white text-[9px] italic leading-none uppercase italic font-black italic border-none cursor-pointer shadow-inner font-black italic font-black">Понял</button>
+                  <div className="flex justify-between items-center px-4 leading-none italic font-black leading-none italic font-black italic leading-none font-black italic leading-none italic font-black shadow-inner font-black italic font-black italic leading-none font-black italic shadow-inner font-black italic font-black leading-none font-black shadow-inner">
+                      <span className="text-[10px] text-cyan-400/50 uppercase font-black tracking-[0.1em] italic leading-none uppercase italic font-black font-black italic leading-none italic font-black shadow-inner font-black italic font-black italic font-black italic shadow-inner font-black italic font-black leading-none shadow-inner">Идеал: {IDEAL_PARAMS[infoModal].min}-{IDEAL_PARAMS[infoModal].max} {IDEAL_PARAMS[infoModal].unit}</span>
+                      <button onClick={() => setInfoModal(null)} className="py-5 px-12 bg-cyan-600 rounded-2xl font-black uppercase active:scale-90 transition-all leading-none shadow-xl shadow-cyan-900/40 text-white text-[9px] italic leading-none uppercase italic font-black italic border-none cursor-pointer shadow-inner font-black italic font-black font-black italic leading-none font-black shadow-inner">Понял</button>
                   </div>
               </div>
           </div>
@@ -617,10 +634,10 @@ export default function App() {
               <div className="modal-card italic font-black shadow-cyan-950/20 leading-none shadow-inner font-black italic font-black italic font-black italic leading-none italic font-black shadow-inner font-black italic font-black italic leading-none font-black italic font-black italic font-black leading-none font-black shadow-inner">
                   <h2 className="text-2xl font-black text-white uppercase italic mb-10 underline decoration-cyan-500 decoration-4 underline-offset-8 tracking-tighter leading-none italic font-black italic leading-none italic font-black shadow-inner font-black italic font-black italic leading-none font-black italic font-black italic font-black leading-none font-black shadow-inner">Новый житель</h2>
                   <div className="space-y-8 leading-none italic font-black leading-none shadow-inner font-black italic font-black italic font-black italic leading-none italic font-black shadow-inner font-black italic font-black italic leading-none font-black italic shadow-inner leading-none font-black italic leading-none italic font-black shadow-inner font-black italic leading-none shadow-inner">
-                      <div className="space-y-3 leading-none italic font-black leading-none shadow-inner font-black italic font-black italic font-black italic leading-none font-black italic leading-none italic font-black shadow-inner font-black italic font-black italic leading-none font-black italic shadow-inner leading-none font-black italic leading-none italic font-black shadow-inner font-black italic leading-none italic font-black shadow-inner"><label className="text-[9px] text-slate-700 uppercase px-4 italic opacity-40 leading-none font-black italic font-black italic font-black italic leading-none italic font-black shadow-inner font-black italic font-black italic font-black italic font-black italic font-black italic leading-none italic font-black font-black italic leading-none shadow-inner">Вид (напр. Acropora)</label><input placeholder="Scientific name" className="auth-input italic shadow-inner !p-5 !text-lg font-black leading-none italic font-black shadow-inner border-cyan-500/10 font-black italic leading-none italic font-black shadow-inner font-black italic font-black italic leading-none font-black italic font-black italic leading-none font-black italic font-black font-black italic leading-none shadow-inner" value={newCoral.name} onChange={e=>setNewCoral({...newCoral, name: e.target.value})} /></div>
-                      <div className="space-y-4 leading-none italic font-black leading-none shadow-inner font-black italic font-black italic font-black italic leading-none italic font-black shadow-inner font-black italic font-black italic leading-none font-black italic shadow-inner font-black italic leading-none font-black shadow-inner">
+                      <div className="space-y-3 leading-none italic font-black leading-none shadow-inner font-black italic font-black italic font-black italic leading-none font-black italic leading-none italic font-black shadow-inner font-black italic font-black italic leading-none font-black italic shadow-inner leading-none font-black italic leading-none italic font-black shadow-inner font-black italic leading-none italic font-black font-black shadow-inner"><label className="text-[9px] text-slate-700 uppercase px-4 italic opacity-40 leading-none font-black italic font-black italic font-black italic leading-none italic font-black shadow-inner font-black italic font-black italic font-black italic font-black italic font-black italic leading-none italic font-black font-black italic leading-none shadow-inner">Вид (напр. Acropora)</label><input placeholder="Scientific name" className="auth-input italic shadow-inner !p-5 !text-lg font-black leading-none italic font-black shadow-inner border-cyan-500/10 font-black italic leading-none italic font-black shadow-inner font-black italic font-black italic leading-none font-black italic font-black italic leading-none font-black italic font-black font-black italic leading-none font-black shadow-inner" value={newCoral.name} onChange={e=>setNewCoral({...newCoral, name: e.target.value})} /></div>
+                      <div className="space-y-4 leading-none italic font-black leading-none shadow-inner font-black italic font-black italic font-black italic leading-none italic font-black shadow-inner font-black italic font-black italic leading-none font-black italic shadow-inner font-black italic leading-none font-black shadow-inner px-2">
                           <label className="text-[9px] text-slate-700 uppercase px-4 italic opacity-40 leading-none shadow-inner font-black italic font-black italic font-black italic leading-none italic font-black shadow-inner font-black italic font-black italic font-black italic leading-none font-black italic font-black italic leading-none font-black italic font-black italic leading-none font-black shadow-inner">Классификация</label>
-                          <div className="grid grid-cols-3 gap-3 leading-none font-black italic shadow-inner font-black italic font-black italic font-black italic leading-none italic font-black shadow-inner font-black italic font-black italic font-black italic leading-none font-black italic font-black italic leading-none font-black italic font-black italic leading-none font-black shadow-inner">
+                          <div className="grid grid-cols-3 gap-6 leading-none font-black italic shadow-inner font-black italic font-black italic font-black italic leading-none italic font-black shadow-inner font-black italic font-black italic font-black italic leading-none font-black italic font-black italic leading-none font-black italic font-black italic leading-none font-black shadow-inner py-4">
                               {['sps', 'lps', 'soft'].map(t => (<button key={t} onClick={()=>setNewCoral({...newCoral, type: t})} className={`p-4 rounded-3xl border-2 text-[9px] font-black uppercase transition-all duration-300 leading-none italic ${newCoral.type === t ? 'bg-cyan-600 border-cyan-400 text-white shadow-xl scale-110 shadow-cyan-900/40 shadow-inner font-black italic font-black font-black shadow-inner' : 'bg-slate-950 border-white/5 text-slate-800 opacity-40 shadow-inner font-black italic font-black font-black shadow-inner'}`}>{t}</button>))}
                           </div>
                       </div>
